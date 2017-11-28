@@ -1,0 +1,373 @@
+---
+title: "Expression profiling analysis of trisomy 12"
+output:
+  BiocStyle::html_document
+---
+
+```{r, echo=FALSE, include=!exists(".standalone")}
+knitr::opts_chunk$set(cache = TRUE)
+```
+
+```{r, message=FALSE, include=!exists(".standalone"), eval=!exists(".standalone")}
+library("BloodCancerMultiOmics2017")
+library("DESeq2")
+library("piano")
+library("pheatmap")
+library("genefilter")
+library("grid")
+library("gridExtra")
+library("RColorBrewer")
+library("cowplot")
+library("tidyverse")
+```
+
+```{r echo=FALSE}
+plotDir = ifelse(exists(".standalone"), "", "part13/")
+if(plotDir!="") if(!file.exists(plotDir)) dir.create(plotDir)
+```
+
+# Expression profiling analysis of trisomy 12
+
+Load and prepare expression data set.
+```{r}
+data(list=c("dds", "patmeta", "mutCOM"))
+
+#load genesets
+gmts = list(
+  H=system.file("extdata","h.all.v5.1.symbols.gmt",
+                package="BloodCancerMultiOmics2017"),
+  C6=system.file("extdata","c6.all.v5.1.symbols.gmt",
+                 package="BloodCancerMultiOmics2017"),
+  KEGG=system.file("extdata","c2.cp.kegg.v5.1.symbols.gmt",
+                   package="BloodCancerMultiOmics2017"))
+```
+
+
+Choose CLL samples with trisomy 12 annotation from the gene expression data set.
+```{r}
+#only choose CLL samples
+colData(dds)$Diagnosis <- patmeta[match(dds$PatID,rownames(patmeta)),]$Diagnosis
+ddsCLL <- dds[,dds$Diagnosis %in% "CLL"]
+
+#add trisomy 12 and IGHV information
+colData(ddsCLL)$trisomy12 <-
+  factor(assayData(mutCOM[ddsCLL$PatID,])$binary[,"trisomy12"])
+colData(ddsCLL)$IGHV <- factor(patmeta[ddsCLL$PatID,]$IGHV)
+
+#remove samples that do not have trisomy 12 information
+ddsCLL <- ddsCLL[,!is.na(ddsCLL$trisomy12)]
+
+#how many genes and samples we have?
+dim(ddsCLL)
+```
+
+Remove transcripts that do not have gene symbol annotations, show low counts or do not show variance across samples. 
+```{r, cache=TRUE}
+#remove genes without gene symbol annotations
+ddsCLL <- ddsCLL[!is.na(rowData(ddsCLL)$symbol),]
+ddsCLL <- ddsCLL[rowData(ddsCLL)$symbol != "",]
+
+#only keep genes that have counts higher than 10 in any sample
+keep <- apply(counts(ddsCLL), 1, function(x) any(x >= 10)) 
+ddsCLL <- ddsCLL[keep,]
+
+#Remove transcripts do not show variance across samples
+ddsCLL <- estimateSizeFactors(ddsCLL)
+sds <- rowSds(counts(ddsCLL, normalized = TRUE))
+sh <- shorth(sds)
+ddsCLL <- ddsCLL[sds >= sh,]
+
+#variance stabilization
+ddsCLL.norm <- varianceStabilizingTransformation(ddsCLL, blind=TRUE)
+
+#how many genes left
+dim(ddsCLL)
+```
+
+## Differential gene expression analysis using DESeq2
+
+DESeq2 was used to identify genes that are differentially expressed between wild-type CLL samples and samples with trisomy 12.
+
+Run DESeq2
+```{r, cache=TRUE}
+design(ddsCLL) <- ~ trisomy12
+ddsCLL <- DESeq(ddsCLL, betaPrior = FALSE)
+DEres <- results(ddsCLL)
+DEres.shr <- lfcShrink(ddsCLL, contrast = c("trisomy12","1","0"), res = DEres)
+```
+
+Plot gene dosage effect.
+```{r, warning=FALSE}
+#FIG# S23 A
+plotTab <- as.data.frame(DEres)
+plotTab$onChr12 <- rowData(ddsCLL)$chromosome == 12
+dosePlot <- ggplot(plotTab) +
+  geom_density(aes(x=log2FoldChange, col=onChr12, fill=onChr12), alpha=0.4) +
+  xlim( -3, 3 )
+dosePlot
+```
+The distributions of the logarithmic (base 2) fold change between samples with and without trisomy 12 are shown separately for the genes on chromosome 12 (green) and on other chromosomes (red). The two distributions are shifted with respected to each by an amount that is consistent with log2(3/2) ~ 0.58 and thus with gene dosage effects. 
+
+### Heatmap plot of differentially expressed genes
+
+A heat map plot was used to show the normalized expression value (Z-score) of the differentially expressed genes in samples with and without trisomy 12.
+
+Prepare matrix for heat map plot.
+```{r}
+#filter genes
+fdrCut <- 0.1
+fcCut <- 1.5
+
+allDE <- data.frame(DEres.shr) %>%
+  rownames_to_column(var = "ID") %>% 
+  mutate(Symbol = rowData(ddsCLL[ID,])$symbol,
+         Chr = rowData(ddsCLL[ID,])$chromosome) %>% 
+  filter(padj <= fdrCut & abs(log2FoldChange) > fcCut) %>% 
+  arrange(pvalue) %>% filter(!duplicated(Symbol)) %>%
+  mutate(Chr12 = ifelse(Chr == 12, "yes", "no"))
+
+#get the expression matrix
+plotMat <- assay(ddsCLL.norm[allDE$ID,])
+colnames(plotMat) <- ddsCLL.norm$PatID
+rownames(plotMat) <- allDE$Symbol
+
+#sort columns of plot matrix based on trisomy 12 status
+plotMat <- plotMat[,order(ddsCLL.norm$trisomy12)]
+
+#calculate z-score and scale
+plotMat <- t(scale(t(plotMat)))
+plotMat[plotMat >= 4] <- 4
+plotMat[plotMat <= -4] <- -4
+```
+
+Plot the heat map.
+```{r,  trisomy12_heatmap, dev = c("png", "pdf"), fig.path=plotDir, fig.width = 8, fig.height = 10}
+#FIG# S23 B
+#prepare colums and row annotations
+annoCol <- data.frame(row.names=ddsCLL.norm$PatID, Tris12=ddsCLL.norm$trisomy12)
+levels(annoCol$Tris12) <- list(wt = 0, mut =1)
+annoRow <- data.frame(row.names = allDE$Symbol, Chr12 = allDE$Chr12)
+annoColor <- list(Tris12 = c(wt = "grey80", mut = "black"),
+                  Chr12 = c(yes="red", no = "grey80"))
+
+
+pheatmap(plotMat,
+         color=colorRampPalette(rev(brewer.pal(n=7, name="RdBu")))(100),
+         cluster_cols = FALSE,
+         annotation_row = annoRow, annotation_col = annoCol,
+         show_colnames = FALSE, fontsize_row = 3,
+         breaks = seq(-4,4, length.out = 101),
+         annotation_colors = annoColor, border_color = NA)
+
+```
+According to the gene expression heat map, the samples with trisomy 12 show distinct expression pattern. 84 genes are significantly up-regulated in trisomy 12 samples and 37 genes are down-regulated in trisomy 12 samples (FDR =0.1 and log2FoldChange > 1.5). Among the 84 up-regulated genes, only 12 genes are from chromosome 12, suggested the distinct expression pattern of trisomy 12 samples can not be merely explained by gene dosage effect. 
+
+
+## Gene set enrichment analysis
+
+Gene set enrichment analysis using PAGE (Parametric Analysis of Gene Set Enrichment) was used to unravel the pathway activity changes underlying trisomy 12.
+
+### Perform enrichment analysis
+
+Function to run PAGE in R.
+```{r}
+runGSEA <- function(inputTab, gmtFile, GSAmethod="gsea", nPerm=1000){
+    inGMT <- loadGSC(gmtFile,type="gmt")
+    #re-rank by score
+    rankTab <- inputTab[order(inputTab[,1],decreasing = TRUE),,drop=FALSE] 
+    if (GSAmethod == "gsea"){
+        #readin geneset database
+        #GSEA analysis
+        res <- runGSA(geneLevelStats = rankTab,
+                      geneSetStat = GSAmethod,
+                      adjMethod = "fdr", gsc=inGMT,
+                      signifMethod = 'geneSampling', nPerm = nPerm)
+        GSAsummaryTable(res)
+    } else if (GSAmethod == "page"){
+        res <- runGSA(geneLevelStats = rankTab,
+                      geneSetStat = GSAmethod,
+                      adjMethod = "fdr", gsc=inGMT,
+                      signifMethod = 'nullDist')
+        GSAsummaryTable(res)
+    }
+}
+```
+
+Function for plotting enrichment bar.
+```{r}
+plotEnrichmentBar <- function(resTab, pCut=0.05, ifFDR=FALSE,
+                              setName="Signatures") {
+  pList <- list()
+  rowNum <- c()
+  for (i in names(resTab)) {
+    plotTab <- resTab[[i]]
+    if (ifFDR) {
+      plotTab <- dplyr::filter(
+        plotTab, `p adj (dist.dir.up)` <= pCut | `p adj (dist.dir.dn)` <= pCut)
+    } else {
+      plotTab <- dplyr::filter(
+        plotTab, `p (dist.dir.up)` <= pCut | `p (dist.dir.dn)` <= pCut)
+    }
+    if (nrow(plotTab) == 0) {
+      print("No sets passed the criteria")
+      next
+    } else {
+      #firstly, process the result table
+      plotTab <- apply(plotTab, 1, function(x) {
+        statSign <- as.numeric(x[3])
+        data.frame(Name = x[1],
+                   p = as.numeric(ifelse(statSign >= 0, x[4], x[6])),
+                   geneNum = ifelse(statSign >= 0, x[8], x[9]),
+                   Direction = ifelse(statSign > 0, "Up", "Down"),
+                   stringsAsFactors = FALSE)
+      }) %>% do.call(rbind,.)
+
+      plotTab$Name <- sprintf("%s (%s)",plotTab$Name,plotTab$geneNum)
+      plotTab <- plotTab[with(plotTab,order(Direction, p, decreasing=TRUE)),]
+      plotTab$Direction <- factor(plotTab$Direction, levels = c("Down","Up"))
+      plotTab$Name <- factor(plotTab$Name, levels = plotTab$Name)
+      #plot the barplot
+      pList[[i]] <- ggplot(data=plotTab, aes(x=Name, y= -log10(p),
+                                             fill=Direction)) +
+        geom_bar(position="dodge",stat="identity", width = 0.5) +
+        scale_fill_manual(values=c(Up = "blue", Down = "red")) +
+        coord_fixed(ratio = 0.5) + coord_flip() + xlab(setName) +
+        ggtitle(i) + theme_bw() + theme(
+          plot.title = element_text(face = "bold", hjust =0.5),
+          axis.title = element_text(size=15))
+      rowNum <-c(rowNum,nrow(plotTab))
+    }
+  }
+
+  if (length(pList) == 0) {
+    print("Nothing to plot")
+  } else {
+    rowNum <- rowNum
+    grobList <- lapply(pList, ggplotGrob)
+    grobList <- do.call(rbind,c(grobList,size="max"))
+    panels <- grobList$layout$t[grep("panel", grobList$layout$name)]
+    grobList$heights[panels] <- unit(rowNum, "null")
+  }
+  return(grobList)
+}
+```
+
+Prepare input table for gene set enrichment analysis. A cut-off of raw p value < 0.05 was used to select genes for the analysis.
+```{r,message=FALSE}
+pCut <- 0.05
+
+dataTab <- data.frame(DEres)
+dataTab$ID <- rownames(dataTab)
+
+#filter using raw pvalues
+dataTab <- filter(dataTab, pvalue <= pCut) %>%
+  arrange(pvalue) %>%
+  mutate(Symbol = rowData(ddsCLL[ID,])$symbol)
+dataTab <- dataTab[!duplicated(dataTab$Symbol),]
+statTab <- data.frame(row.names = dataTab$Symbol, stat = dataTab$stat)
+```
+
+Gene set enrichment analysis using Hallmarks gene set from MsigDB.
+```{r,fig.width=8, fig.height=6, message=FALSE}
+hallmarkRes <- list()
+
+#run PAGE
+resTab <- runGSEA(statTab, gmts$H ,GSAmethod = "page")
+
+#remove the HALLMARK_
+resTab$Name <- gsub("HALLMARK_","",resTab$Name)
+
+hallmarkRes[["Gene set enrichment analysis"]] <- 
+  arrange(resTab,desc(`Stat (dist.dir)`))
+
+hallBar <- plotEnrichmentBar(hallmarkRes, pCut = 0.01, ifFDR = TRUE,
+                             setName = "Hallmark gene sets")
+```
+
+Gene set enrichment analysis using kegg gene set from MsigDB.
+```{r, message=FALSE}
+keggRes <- list()
+
+resTab <- runGSEA(statTab,gmts$KEGG,GSAmethod = "page")
+
+#remove the KEGG_
+resTab$Name <- gsub("KEGG_","",resTab$Name)
+
+keggRes[["Gene set enrichment analysis"]] <- resTab
+
+keggBar <- plotEnrichmentBar(keggRes, pCut = 0.01, ifFDR = TRUE,
+                             setName = "KEGG gene sets")
+```
+
+
+### Heatmap for selected gene sets
+
+Heatmap plots were used to show the expression values of differentially expressed genes from KEGG_CHEMOKINE_SIGNALING_PATHWAY gene set
+
+Prepare the matrix for heatmap plot.
+```{r}
+#select differentially expressed genes
+fdrCut <- 0.05
+cytoDE <- data.frame(DEres) %>% rownames_to_column(var = "ID") %>% 
+  mutate(Symbol = rowData(ddsCLL[ID,])$symbol,
+         Chr=rowData(ddsCLL[ID,])$chromosome) %>% 
+  filter(padj <= fdrCut, log2FoldChange > 0) %>% 
+  arrange(pvalue) %>% filter(!duplicated(Symbol)) %>%
+  mutate(Chr12 = ifelse(Chr == 12, "yes", "no"))
+
+#get the expression matrix
+plotMat <- assay(ddsCLL.norm[cytoDE$ID,])
+colnames(plotMat) <- ddsCLL.norm$PatID
+rownames(plotMat) <- cytoDE$Symbol
+
+#sort columns of plot matrix based on trisomy 12 status
+plotMat <- plotMat[,order(ddsCLL.norm$trisomy12)]
+
+#calculate z-score and sensor
+plotMat <- t(scale(t(plotMat)))
+plotMat[plotMat >= 4] <- 4
+plotMat[plotMat <= -4] <- -4
+
+annoCol <- data.frame(row.names = ddsCLL.norm$PatID,
+                      Tris12 = ddsCLL.norm$trisomy12)
+levels(annoCol$Tris12) <- list(wt = 0, mut =1)
+annoRow <- data.frame(row.names = cytoDE$Symbol, Chr12 = cytoDE$Chr12)
+
+```
+
+Heatmap for genes from KEGG_CHEMOKINE_SIGNALING_PATHWAY geneset.
+```{r}
+gsc <- loadGSC(gmts$KEGG)
+geneList <- gsc$gsc$KEGG_CHEMOKINE_SIGNALING_PATHWAY
+plotMat.chemo <- plotMat[rownames(plotMat) %in% geneList,]
+keggHeatmap <- pheatmap(plotMat.chemo,
+                        color = colorRampPalette(
+                          rev(brewer.pal(n=7, name="RdBu")))(100),
+         cluster_cols = FALSE, clustering_method = "ward.D2",
+         annotation_row = annoRow, annotation_col = annoCol,
+         show_colnames = FALSE, fontsize_row = 8,
+         breaks = seq(-4,4, length.out = 101), treeheight_row = 0,
+         annotation_colors = annoColor, border_color = NA,
+         main = "CHEMOKINE_SIGNALING_PATHWAY",silent = TRUE)$gtable
+```
+
+Combine enrichment plot and heatmap plot.
+```{r geneEnrichment_result, dev = c("png", "pdf"), fig.path=plotDir, fig.width = 14, fig.height = 13}
+#FIG# S24 ABC
+ggdraw() + 
+  draw_plot(hallBar, 0, 0.7, 0.5, 0.3) + 
+  draw_plot(keggBar, 0.5, 0.7, 0.5, 0.3) +
+  draw_plot(keggHeatmap, 0.1, 0, 0.8, 0.65) +
+  draw_plot_label(c("A","B","C"), c(0, 0.5, 0.1), c(1, 1, 0.7), 
+                  fontface = "plain", size=20)
+
+```
+Based on the gene set enrichment analysis results,  genes from PI3K_ATK_MTOR pathway are significantly up-regulated in the samples with trisomy 12, which partially explained the increased sensitivity of trisomy 12 samples to PI3K and MTOR inhibitors. In addition, genes that are up-regulated in trisomy 12 are enrichment in chemokine signaling pathway. 
+
+```{r, include=!exists(".standalone"), eval=!exists(".standalone")}
+sessionInfo()
+```
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+rm(list=ls())
+```

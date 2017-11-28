@@ -1,0 +1,188 @@
+---
+title: "Primary Blood Cancer Cell Encyclopedia (PACE)"
+vignette: >
+  %\VignetteIndexEntry{Primary Blood Cancer Cell Encyclopedia (PACE)}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+output:
+  BiocStyle::html_document
+---
+
+
+# Introduction
+
+PACE is a multi-omic dataset comprising genome, transcriptome, DNA methylome data together with data from the *ex vivo* drug sensitivity screen of the primary blood tumor samples.
+
+***
+
+In this vignette we present the analysis of PACE and source code for the paper
+
+<br />
+
+**Drug Perturbation Based Stratification of Blood Cancer**
+
+Sascha Dietrich\*, Małgorzata Oleś\*, Junyan Lu\*,
+Leopold Sellner, Simon Anders, Britta Velten, Bian Wu, Jennifer Hüllein, Michelle da Silva Liberio, Tatjana Walther, Lena Wagner, Sophie Rabe, Sonja Ghidelli-Disse, Marcus Bantscheff, Andrzej K. Oleś, Mikołaj Słabicki, Andreas Mock, Christopher C. Oakes, Shihui Wang, Sina Oppermann, Marina Lukas, Vladislav Kim, Martin Sill, Axel Benner, Anna Jauch, Lesley Ann Sutton, Emma Young, Richard Rosenquist, Xiyang Liu, Alexander Jethwa, Kwang Seok Lee, Joe Lewis, Kerstin Putzker, Christoph Lutz, Davide Rossi, Andriy Mokhir, Thomas Oellerich, Katja Zirlik, Marco Herling, Florence Nguyen-Khac, Christoph Plass, Emma Andersson, Satu Mustjoki, Christof von Kalle, Anthony D. Ho, Manfred Hensel, Jan Dürig, Ingo Ringshausen, Marc Zapatka,
+Wolfgang Huber and Thorsten Zenz
+
+The presented analysis was done by Małgorzata Oleś, Sascha Dietrich, Junyan Lu, Britta Velten, Andreas Mock, Vladislav Kim and Wolfgang Huber.
+
+*This vignette was put together by Małgorzata Oleś.*
+
+<br />
+
+
+This vignette is build from the sub-vignettes, which each can be build separatelly. The parts are separated by the horizontal lines. Each part finishes with removal of all the created objects.
+
+
+```{r echo=FALSE}
+.standalone=FALSE
+```
+
+```{r, message=FALSE, warning=FALSE, include=!.standalone}
+library("AnnotationDbi")
+library("abind")
+library("beeswarm")
+library("Biobase")
+library("biomaRt")
+library("broom")
+library("colorspace")
+library("cowplot")
+library("dendsort")
+library("DESeq2")
+library("doParallel")
+library("dplyr")
+library("foreach")
+library("forestplot")
+library("genefilter")
+library("ggbeeswarm")
+library("ggdendro")
+library("ggplot2")
+library("ggtern")
+library("glmnet")
+library("grid")
+library("gridExtra")
+library("gtable")
+library("hexbin")
+library("IHW")
+library("ipflasso")
+library("knitr")
+library("limma")
+library("magrittr")
+library("maxstat")
+library("monogeneaGM")
+library("nat")
+library("org.Hs.eg.db")
+library("BloodCancerMultiOmics2017")
+library("pheatmap")
+library("piano")
+library("readxl")
+library("RColorBrewer")
+library("reshape2")
+library("Rtsne")
+library("scales")
+library("SummarizedExperiment")
+library("survival")
+library("tibble")
+library("tidyr")
+library("tidyverse")
+library("xtable")
+```
+
+***
+
+<!-- **p1** -->
+
+```{r p01, child = 'src/part01.Rmd'}
+```
+
+***
+
+<!-- **p2** -->
+
+```{r p02, child = 'src/part02.Rmd'}
+```
+
+***
+
+<!-- **p14** -->
+
+```{r p14, child = 'src/part14.Rmd'}
+```
+
+***
+
+<!-- **p3**-->
+
+```{r p03, child = 'src/part03.Rmd'}
+```
+
+***
+
+<!-- **p10** -->
+
+```{r p10, child = 'src/part10.Rmd'}
+```
+
+***
+
+<!-- **p16** -->
+
+```{r p16, child = 'src/part16.Rmd'}
+```
+
+***
+
+<!-- **p7** -->
+
+```{r p07, child = 'src/part07.Rmd'}
+```
+
+***
+
+<!-- **p4** -->
+
+```{r p04, child = 'src/part04.Rmd'}
+```
+
+***
+
+<!-- **p5** -->
+
+```{r p05, child = 'src/part05.Rmd'}
+```
+
+***
+
+<!-- **p15** -->
+
+```{r p15, child = 'src/part15.Rmd'}
+```
+
+***
+
+<!-- **p13** -->
+
+```{r p13, child = 'src/part13.Rmd'}
+```
+
+***
+
+<!-- **p11** -->
+
+```{r p11, child = 'src/part11.Rmd'}
+```
+
+***
+
+<!-- **p8** -->
+
+```{r p08, child = 'src/part08.Rmd'}
+```
+
+
+# End of session
+
+```{r}
+sessionInfo()
+```

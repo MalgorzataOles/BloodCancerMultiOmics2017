@@ -1,0 +1,595 @@
+---
+title: "Part 8"
+output:
+  BiocStyle::html_document
+---
+
+```{r, message=FALSE, include=!exists(".standalone"), eval=!exists(".standalone")}
+library("BloodCancerMultiOmics2017")
+library("Biobase")
+library("RColorBrewer")
+library("grid")
+library("ggplot2")
+library("survival")
+library("gtable")
+library("forestplot")
+library("xtable")
+library("maxstat")
+```
+
+```{r echo=FALSE}
+plotDir = ifelse(exists(".standalone"), "", "part08/")
+if(plotDir!="") if(!file.exists(plotDir)) dir.create(plotDir)
+```
+
+```{r}
+options(stringsAsFactors=FALSE)
+```
+
+# Survival analysis
+
+Load the data.
+```{r}
+data(lpdAll, patmeta, drugs)
+```
+
+Prepare survival data.
+```{r}
+lpdCLL <- lpdAll[ , lpdAll$Diagnosis=="CLL"   ]
+
+# data rearrangements
+survT = patmeta[colnames(lpdCLL),]
+survT[which(survT[,"IGHV"]=="U") ,"IGHV"] = 0
+survT[which(survT[,"IGHV"]=="M") ,"IGHV"] = 1
+survT$IGHV = as.numeric(survT$IGHV)
+
+colnames(survT) = gsub("Age4Main", "age", colnames(survT))
+
+survT$ibr45  <- 1-exprs(lpdCLL)[ "D_002_4:5", rownames(survT)  ]  
+survT$ide45  <- 1-exprs(lpdCLL)[ "D_003_4:5", rownames(survT)  ] 
+survT$prt45  <- 1-exprs(lpdCLL)[ "D_166_4:5", rownames(survT)  ] 
+survT$selu45 <- 1-exprs(lpdCLL)[ "D_012_4:5", rownames(survT)  ]
+survT$ever45 <- 1-exprs(lpdCLL)[ "D_063_4:5", rownames(survT)  ]
+
+survT$nut15 <- 1-exprs(lpdCLL)[ "D_010_1:5", rownames(survT)  ] 
+survT$dox15 <- 1-exprs(lpdCLL)[ "D_159_1:5", rownames(survT)  ] 
+survT$flu15 <- 1-exprs(lpdCLL)[ "D_006_1:5", rownames(survT)  ] 
+
+survT$SF3B1      <- exprs(lpdCLL)[ "SF3B1",      rownames(survT)  ]
+survT$NOTCH1     <- exprs(lpdCLL)[ "NOTCH1",     rownames(survT)  ]
+survT$BRAF       <- exprs(lpdCLL)[ "BRAF",       rownames(survT)  ]
+survT$TP53       <- exprs(lpdCLL)[ "TP53",       rownames(survT)  ]
+survT$del17p13   <- exprs(lpdCLL)[ "del17p13",   rownames(survT)  ]
+survT$del11q22.3 <- exprs(lpdCLL)[ "del11q22.3", rownames(survT)  ]
+survT$trisomy12 <-  exprs(lpdCLL)[ "trisomy12", rownames(survT)  ]
+survT$IGHV_cont <- patmeta[ rownames(survT) ,"IGHV Uppsala % SHM"]
+
+
+# competinting risk endpoint fpr 
+survT$compE <- ifelse(survT$treatedAfter == TRUE, 1, 0)
+survT$compE <- ifelse(survT$treatedAfter == FALSE & survT$died==TRUE,
+                      2, survT$compE )
+survT$T7  <- ifelse(survT$compE == 1, survT$T5, survT$T6 )
+```
+
+
+## Univariate survival analysis
+
+### Define forest functions
+
+```{r forest}
+forest <- function(Time, endpoint, title, sdrugs, split, sub) {  
+  stopifnot(is.character(Time), is.character(title), is.character(split),
+            is.character(endpoint), 
+            all(c(Time, split, endpoint) %in% colnames(survT)),
+            is.logical(survT[[endpoint]]),
+            is.character(sdrugs), !is.null(names(sdrugs)))
+  
+  clrs <- fpColors(box="royalblue",line="darkblue", summary="royalblue")
+
+  res <- lapply(sdrugs, function(g) { 
+    drug <- survT[, g] * 10
+
+    suse <- if (identical(sub, "none")) 
+      rep(TRUE, nrow(survT)) 
+    else 
+      (survT[[split]] == sub)
+    stopifnot(sum(suse, na.rm = TRUE) > 1)
+    
+    surv <- coxph(Surv(survT[,Time], survT[,endpoint]) ~ drug, subset=suse)  
+    sumsu <- summary(surv) 
+    c(p      = sumsu[["coefficients"]][, "Pr(>|z|)"], 
+      coef   = sumsu[["coefficients"]][, "exp(coef)"], 
+      lower  = sumsu[["conf.int"]][, "lower .95"], 
+      higher = sumsu[["conf.int"]][, "upper .95"])
+  })
+  
+  s <- do.call(rbind, res)
+  rownames(s) <- names(sdrugs)
+
+  tabletext <- list(c(NA, rownames(s)), append(list("p-value"),
+                                               sprintf("%.4f", s[,"p"])))
+
+  forestplot(tabletext, 
+           rbind(
+             rep(NA, 3), 
+             s[, 2:4]), 
+           page = new,
+           clip = c(0.8,20), 
+           xlog = TRUE, xticks = c(0.5,1, 1.5), title = title,
+           col = clrs, 
+           txt_gp = fpTxtGp(ticks = gpar(cex=1) ),
+           new_page = TRUE)
+}
+```
+
+Combine OS and TTT in one plot.
+```{r forest-together}
+
+com <- function( Time, endpoint, scaleX, sub, d, split, drug_names) {  
+  
+  res <- lapply(d, function(g)  { 
+  
+  drug <- survT[,g] * scaleX
+  ## all=99, M-CLL=1, U-CLL=0
+  if(sub==99) { surv <- coxph(Surv(survT[,paste0(Time)],
+                                   survT[,paste0(endpoint)] == TRUE) ~ drug)} 
+  if(sub<99)  { surv <- coxph(Surv(survT[,paste0(Time)],
+                                   survT[,paste0(endpoint)] == TRUE) ~ drug,
+                              subset=survT[,paste0(split)]==sub)}    
+  
+  c(summary(surv)[[7]][,5], summary(surv)[[7]][,2], 
+                summary(surv)[[8]][,3], 
+                summary(surv)[[8]][,4])
+ })
+ s <- do.call(rbind, res)
+ colnames(s) <- c("p", "HR", "lower", "higher")
+ rownames(s) <- drug_names
+ s
+}
+
+
+fp <- function( sub, title, d, split, drug_names, a, b, scaleX) {  
+   ttt <- com(Time="T5", endpoint="treatedAfter", sub=sub, d=d,
+              split=split, drug_names=drug_names, scaleX=scaleX)
+   rownames(ttt) <- paste0(rownames(ttt), "_TTT")
+   
+   os <-  com(Time="T6", endpoint="died", sub=sub, d=d, split=split,
+              drug_names=drug_names, scaleX=scaleX)
+   rownames(os) <- paste0(rownames(os), "_OS")
+  
+   n <- c( p=NA, HR=NA, lower=NA, higher=NA )
+   nn <- t( data.frame( n ) )
+   for (i in 1:(nrow(ttt)-1) ) { nn <-rbind(nn, n )  }
+   rownames(nn) <- drug_names
+   
+   od <- order( c(seq(nrow(nn)), seq(nrow(ttt)), seq(nrow(os)) ))
+      
+   s <- data.frame( rbind(nn, ttt, os)[od,  ] )
+   s$Name <- rownames(s)
+   s$x <- 1:nrow(s)
+   s$col <- rep(c("white", "black", "darkgreen"), nrow(ttt) )
+   s$Endpoint <- factor( c(rep("nn", nrow(nn) ), rep("TTT", nrow(ttt) ),
+                           rep("OS", nrow(os) ) )[od] )
+   s$features <- "";  s[ which(s$Endpoint=="OS"),"features"] <- drug_names
+   s[which(s$Endpoint=="nn"), "Endpoint"] <- "" 
+   s <- rbind(s, rep(NA, 8))
+
+   p <- ggplot(data=s ,aes(x=x, y=HR, ymin=lower, ymax=higher,
+                           colour=Endpoint)) +  geom_pointrange() + 
+     theme(legend.position="top", legend.text = element_text(size = 20) ) +
+     scale_x_discrete(limits=s$x, labels=s$features ) +
+     expand_limits(y=c(a,b)) +
+     scale_y_log10(breaks=c(0.01,0.1,0.5,1,2,5,10),
+                   labels=c(0.01,0.1,0.5,1,2,5,10)) +
+     theme(
+           panel.grid.minor = element_blank(),
+           axis.title.x = element_text(size=16),
+           axis.text.x = element_text(size=16, colour="black"),
+           axis.title.y  = element_blank(),
+           axis.text.y = element_text(size=12, colour="black"),
+           legend.key = element_rect(fill = "white"),
+           legend.background = element_rect(fill = "white"),
+           legend.title = element_blank(),
+           panel.background = element_rect(fill = "white", color="black"),
+           panel.grid.major = element_blank(),
+           axis.ticks.y = element_blank() 
+          ) +
+     coord_flip() + 
+     scale_color_manual(values=c("OS"="darkgreen", "TTT"="black"),
+                        labels=c("OS", "TTT", "")) +
+     geom_hline(aes(yintercept=1), colour="black", size=1.5,
+                linetype="dashed", alpha=0.3)  +
+     annotate("text", x = 1:nrow(s)+0.5, y = s$HR+0.003,
+              label = ifelse( s$p<0.001, paste0("p<","0.001"), 
+                paste0("p=", round(s$p,3) ) ), colour=s$col)
+   plot(p)
+}
+```
+
+
+### Forest plot for genetic factors
+
+```{r Fig5A, fig.path=plotDir, fig.width=5.55, fig.height=( (1+8*1.2) ), dev = c("png", "pdf"), warning=FALSE}
+#FIG# S27
+d <- c("SF3B1", "NOTCH1", "BRAF", "TP53", "del17p13", "del11q22.3",
+       "trisomy12", "IGHV")
+drug_names <- c("SF3B1", "NOTCH1", "BRAF", "TP53", "del17p13", "del11q22.3",
+                "Trisomy12" ,"IGHV")
+
+fp(sub=99, d=d, drug_names=drug_names, split="IGHV", title="", a=0, b=10,
+   scaleX=1)
+```
+
+### Forest plot for drug responses
+
+```{r Fig5B, fig.path=plotDir, fig.width=6.0, fig.height=( (1+8*1.2) ), dev = c("png", "pdf"), warning=FALSE}
+#FIG# 6A
+d <- c("flu15", "nut15", "dox15", "ibr45", "ide45", "prt45", "selu45",
+       "ever45")
+drug_names <- c("Fludarabine",  "Nutlin-3", "Doxorubicine", "Ibrutinib",
+                "Idelalisib", "PRT062607 HCl", "Selumetinib" ,"Everolimus")
+
+fp(sub=99, d=d, drug_names=drug_names, split="TP53", title="", a=0, b=5,
+   scaleX=10)
+```
+
+## Kaplan-Meier curves 
+
+### Genetics factors
+
+```{r SFig_genetics1, fig.path=plotDir, fig.width = 8.46, fig.height = 4.5, dev = c("png", "pdf")}
+#FIG# S27 left (top+bottom)
+par(mfcol=c(1,2))
+
+for (fac in paste(c("IGHV", "TP53"))) {
+survplot( Surv(survT$T5, survT$treatedAfter == TRUE)  ~ as.factor(survT[,fac]), 
+   snames=c("wt", "mut"),
+   lwd=1.5, cex.axis = 1, cex.lab=1, col= c("darkmagenta", "dodgerblue4"),
+   show.nrisk = FALSE,
+   legend.pos = FALSE, stitle = "", hr.pos= "topright",
+   main = paste(fac), 
+   xlab = 'Time (Years)', ylab = 'Time to treatment')
+}
+```
+
+```{r SFig_genetics2, fig.path=plotDir, fig.width = 8.46, fig.height = 4.5, dev = c("png", "pdf")}
+#FIG# 6B left
+#FIG# S27 right (top+bottom)
+par(mfcol=c(1,2))
+
+for (fac in paste(c("IGHV", "TP53"))) {
+survplot( Surv(survT$T6, survT$died == TRUE)  ~ as.factor(survT[,fac]), 
+   snames=c("wt", "mut"),
+   lwd=1.5, cex.axis = 1.0, cex.lab=1.0, col= c("darkmagenta", "dodgerblue4"),
+   show.nrisk = FALSE,
+   legend.pos = FALSE, stitle = "", hr.pos= "bottomleft",
+   main = paste(fac), 
+   xlab = 'Time (Years)', ylab = 'Overall survival')
+}  
+```
+
+
+### Drug responses
+
+Drug responses were dichotomized using maximally selected rank statistics. The analysis is also perforemd within subgroups: TP53 wt/ mut. and IGHV wt/ mut. 
+
+```{r KM, echo=FALSE}
+km <- function(drug, split, title, t, hr, c) { 
+  stopifnot(is.character(drug), length(drug)==1, is.character(title),
+            length(title)==3)
+
+  surv <- survT[!(is.na(survT[,split])), ]
+  k <- exprs(lpdCLL)[ drug, rownames(surv) ]
+  
+  ms5 <- maxstat.test(Surv(T5, treatedAfter)  ~ k, 
+                             data = surv,
+                             smethod = "LogRank",
+                             minprop = 0.2, 
+                             maxprop = 0.8, 
+                             alpha = NULL)
+  ms6 <- maxstat.test(Surv(T6, died) ~ k, 
+                             data = surv,
+                             smethod = "LogRank",
+                             minprop = 0.2, 
+                             maxprop = 0.8, 
+                             alpha = NULL)
+
+  
+  # median & TTT
+  if (c=="med" & t=="TTT") {    
+   surv$cutA <- ifelse(
+     k >= median( k[which(!(is.na(surv$T5)) ) ] ), "weak", "good")
+   surv$cutM <- ifelse(
+     k >= median( k[ which( surv[,paste0(split)]==1 & !(is.na(surv$T5)) ) ],
+                  na.rm=TRUE ), "weak", "good") 
+   surv$cutU <- ifelse(
+     k >= median( k[ which( surv[,paste0(split)]==0 & !(is.na(surv$T5)) ) ],
+                  na.rm=TRUE ), "weak", "good")
+   
+  }
+  
+  # median & OS
+  if (c=="med" & t=="OS") {    
+   surv$cutA <- ifelse(k >= median(k), "weak", "good")
+   surv$cutM <- ifelse(k >= median( k[ which( surv[,paste0(split)]==1 ) ] ),
+                       "weak", "good") 
+   surv$cutU <- ifelse(k >= median( k[ which( surv[,paste0(split)]==0 ) ] ),
+                       "weak", "good")
+  }
+  
+  #TTT & maxstat
+  if (c=="maxstat" & t=="TTT") {    
+   surv$cutA <- surv$cut5 <- ifelse(k >= ms5$estimate, "weak", "good")
+   surv$cutM <- surv$cut5 <- ifelse(k >= ms5$estimate, "weak", "good") 
+   surv$cutU <- surv$cut5 <- ifelse(k >= ms5$estimate, "weak", "good")
+  }
+  
+  #OS & maxstat
+  if (c=="maxstat" & t=="OS") {    
+   surv$cutA <- surv$cut5 <- ifelse(k >= ms6$estimate, "weak", "good")
+   surv$cutM <- surv$cut5 <- ifelse(k >= ms6$estimate, "weak", "good") 
+   surv$cutU <- surv$cut5 <- ifelse(k >= ms6$estimate, "weak", "good")
+  }
+
+  drName <- toCaps(drugs[stripConc(drug), "name"])
+  
+   sp <- function(...)
+    survplot(..., 
+      lwd = 3, cex.axis = 1.2, cex.lab = 1.5,
+      col= c("royalblue", "darkred"), show.nrisk = FALSE,
+      legend.pos = FALSE, stitle = "",
+      hr.pos=ifelse(hr=="bl", "bottomleft", "topright" ),
+      xlab = 'Time (Years)') 
+    
+  if (t=="TTT") {
+         yl <- "Fraction w/o treatment"
+         if (c=="med"){
+           cat(sprintf("%s median-cutpoint for TTT: %5.2g\n",
+                       drName, median(k) ) ) } else 
+                       { cat(sprintf("%s cutpoint for TTT: %5.2g\n", drName,
+                         ms5$estimate )) }
+         
+         sp(Surv(surv$T5, surv$treatedAfter) ~ surv$cutA,
+            subset = rep(TRUE, nrow(surv)), ylab = yl, main = drName)
+         sp(Surv(surv$T5, surv$treatedAfter) ~ surv$cutM,
+            subset = surv[, split]==1, ylab = yl,
+            main = paste(drName, title[1], title[3])) 
+         sp(Surv(surv$T5, surv$treatedAfter) ~ surv$cutU,
+            subset = surv[ ,split]==0, ylab = yl,
+            main = paste(drName, title[1], title[2])) }
+   # OS  
+   else {
+         yl <- "Fraction overall survival"
+         if (c=="med"){
+           cat(sprintf("%s median-cutpoint for OS: %5.2g\n",
+                       drName, median(k) ) ) } else {
+                         cat(sprintf("%s cutpoint for OS: %5.2g\n",
+                                     drName, ms6$estimate ))}
+         sp(Surv(surv$T6, surv$died) ~ surv$cutA,
+            subset = rep(TRUE, nrow(surv)), ylab = yl, main = drName)
+         sp(Surv(surv$T6, surv$died) ~ surv$cutM,
+            subset = surv[, split]==1, ylab = yl,
+            main = paste(drName, title[1], title[3])) 
+         sp(Surv(surv$T6, surv$died) ~ surv$cutU,
+            subset = surv[ ,split]==0, ylab = yl,
+            main = paste(drName, title[1], title[2]))
+         }
+}
+```
+
+
+Time to next treatment (maxstat).
+```{r KM-TTT-maxstat, fig.path=plotDir, fig.width = 10, fig.height = 3.3, dev = c("png", "pdf")}
+par(mfrow=c(1,3), mar=c(5,5,2,0.9))
+km(drug = "D_006_1:5", split = "TP53", t="TTT",
+   title=c("(TP53", "wt)", "mut)"),  hr="tr", c="maxstat")
+km(drug = "D_159_1:5", split = "TP53", t="TTT",
+   title=c("(TP53", "wt)", "mut)"), hr="tr",  c="maxstat")
+km(drug = "D_010_1:5", split = "TP53", t="TTT",
+   title=c("(TP53", "wt)", "mut)"), hr="tr",  c="maxstat")  
+
+km(drug = "D_002_4:5", split = "IGHV", t="TTT",
+   title=c("(IGHV",  "wt)" , "mut)"), hr="tr", c="maxstat" )
+km(drug = "D_003_4:5", split = "IGHV", t="TTT",
+   title=c("(IGHV",  "wt)" , "mut)"), hr="tr", c="maxstat" )
+km(drug = "D_166_4:5", split = "IGHV", t="TTT",
+   title=c("(IGHV",  "wt)" , "mut)"), hr="tr", c="maxstat" ) 
+```
+
+Overall survival (maxstat).
+```{r KM-OS-maxstat, fig.path=plotDir, fig.width = 10, fig.height = 3.3, dev = c("png", "pdf")}
+par(mfrow=c(1,3), mar=c(5,5,2,0.9))
+km(drug = "D_006_1:5", split = "TP53", t="OS",
+   title=c("(TP53", "wt)", "mut)"), hr="bl", c="maxstat")
+
+#FIG# 6B right
+#FIG# 6C
+km(drug = "D_159_1:5", split = "TP53", t="OS", # doxorubicine
+   title=c("(TP53", "wt)", "mut)"), hr="bl", c="maxstat" )
+
+#FIG# 6B middle
+km(drug = "D_010_1:5", split = "TP53", t="OS", # nutlin-3
+   title=c("(TP53", "wt)", "mut)"), hr="bl", c="maxstat" )
+
+km(drug = "D_002_4:5", split = "IGHV", t="OS",
+   title=c("(IGHV",  "wt)" , "mut)"), hr="bl", c="maxstat" )
+km(drug = "D_003_4:5", split = "IGHV", t="OS",
+   title=c("(IGHV",  "wt)" , "mut)"), hr="bl", c="maxstat" )
+km(drug = "D_166_4:5", split = "IGHV", t="OS",
+   title=c("(IGHV",  "wt)" , "mut)"), hr="bl", c="maxstat" ) 
+```
+
+
+## Multivariate Cox-model
+
+```{r extract}
+extractSome <- function(x) {
+  sumsu <- summary(x)
+  data.frame(
+    `p-value`      = 
+      sprintf("%6.3g", sumsu[["coefficients"]][, "Pr(>|z|)"]),
+    `HR`           = 
+      sprintf("%6.3g", signif( sumsu[["coefficients"]][, "exp(coef)"], 2) ), 
+    `lower 95% CI` = 
+      sprintf("%6.3g", signif( sumsu[["conf.int"]][, "lower .95"], 2) ),
+    `upper 95% CI` = 
+      sprintf("%6.3g", signif( sumsu[["conf.int"]][, "upper .95"], 2),
+              check.names = FALSE) )
+}
+```
+
+Define covariates and effects.
+```{r covariates, echo=FALSE}
+survT$age <- survT$age/10
+survT$IC50beforeTreatment <- ifelse(survT$IC50beforeTreatment==TRUE, 1, 0)
+survT$IGHVwt <- ifelse(survT$IGHV==1, 0, 1)
+
+survT$flu15 <- survT$flu15*10
+survT$dox15 <- survT$dox15*10
+
+survT$ibr45 <- survT$ibr45*10
+survT$ide45 <- survT$ide45*10
+survT$prt45 <- survT$prt45*10
+```
+
+
+### Chemotherapies
+
+#### Fludarabine
+```{r}
+surv1 <- coxph(
+  Surv(T6, died) ~  
+    age +
+    as.factor(IC50beforeTreatment) +
+    as.factor(trisomy12) +
+    as.factor(del11q22.3) +
+    as.factor(del17p13) +
+    as.factor(TP53) +
+    IGHVwt +
+    flu15,       # continuous
+    #dox15 +     # continuous
+    #flu15:TP53,
+    #TP53:dox15,
+  data = survT )
+extractSome(surv1)
+
+cat(sprintf("%s patients considerd in the model; number of events %1g\n", 
+            summary(surv1)$n, summary(surv1)[6] ) )
+```
+
+```{r echo=FALSE, results='hide', eval=FALSE}
+write(print(xtable(extractSome(surv1))), file=paste0(plotDir,"flu_MD.tex"))
+```
+
+#### Doxorubicine
+
+```{r}
+surv2 <- coxph(
+  Surv(T6, died) ~   #as.factor(survT$TP53) , data=survT )
+    age +
+    as.factor(IC50beforeTreatment) +
+    as.factor(trisomy12) +
+    as.factor(del11q22.3) +
+    as.factor(del17p13) +
+    as.factor(TP53) +
+    IGHVwt +
+    #flu15 +    # continuous
+    dox15 ,     # continuous
+    #flu15:TP53 ,
+    #TP53:dox15,
+  data = survT )
+extractSome(surv2)
+
+cat(sprintf("%s patients considerd in the model; number of events %1g\n", 
+            summary(surv2)$n, summary(surv2)[6] ) )
+```
+
+```{r echo=FALSE, results='hide', eval=FALSE}
+write(print(xtable(extractSome(surv2))), file=paste0(plotDir,"dox_MD.tex"))
+```
+
+### Targeted therapies
+
+#### Ibrutinib TTT
+
+```{r}
+surv4 <- coxph(
+  Surv(T5, treatedAfter) ~ 
+    age +
+    as.factor(IC50beforeTreatment) +
+    as.factor(trisomy12) +
+    as.factor(del11q22.3) +
+    as.factor(del17p13) +
+    IGHVwt +
+    ibr45 +
+    IGHVwt:ibr45,
+  data = survT )
+
+extractSome(surv4)
+
+cat(sprintf("%s patients considerd in the model; number of events %1g\n", 
+            summary(surv4)$n, summary(surv4)[6] ) )
+```
+
+```{r echo=FALSE, results='hide', eval=FALSE}
+write(print(xtable(extractSome(surv4))), file=paste0(plotDir,"ibr_TTT.tex"))
+```
+
+#### Idelalisib TTT
+
+```{r}
+surv6 <- coxph(
+  Surv(T5, treatedAfter) ~ 
+    age +
+    as.factor(IC50beforeTreatment) +
+    as.factor(trisomy12) +
+    as.factor(del11q22.3) +
+    as.factor(del17p13) +
+    IGHVwt +
+    ide45 +
+    IGHVwt:ide45,
+  data = survT )
+
+extractSome(surv6)
+
+cat(sprintf("%s patients considerd in the model; number of events %1g\n",
+            summary(surv6)$n, summary(surv6)[6] ) )
+```
+
+```{r echo=FALSE, results='hide', eval=FALSE}
+write(print(xtable(extractSome(surv6))), file=paste0(plotDir,"ide_TTT.tex"))
+```
+
+#### PRT062607 HCl TTT
+```{r}
+surv8 <- coxph(
+  Surv(T5, treatedAfter) ~ 
+    age +
+    as.factor(IC50beforeTreatment) +
+    as.factor(trisomy12) +
+    as.factor(del11q22.3) +
+    as.factor(del17p13) +
+    IGHVwt +
+    prt45 +
+    IGHVwt:prt45,
+  data = survT )
+
+extractSome(surv8)
+
+cat(sprintf("%s patients considerd in the model; number of events %1g\n", 
+            summary(surv8)$n, summary(surv8)[6] ) )
+```
+
+```{r echo=FALSE, results='hide', eval=FALSE}
+write(print(xtable(extractSome(surv8))), file=paste0(plotDir,"prt_TTT.tex"))
+```
+
+
+```{r, include=!exists(".standalone"), eval=!exists(".standalone")}
+sessionInfo()
+```
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+rm(list=ls())
+```

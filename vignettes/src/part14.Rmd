@@ -1,0 +1,121 @@
+---
+title: "Part 14"
+output:
+  BiocStyle::html_document
+---
+
+```{r, message=FALSE, include=!exists(".standalone"), eval=!exists(".standalone")}
+library("BloodCancerMultiOmics2017")
+library("readxl")
+library("dplyr")
+library("ggplot2")
+library("reshape2")
+library("xtable")
+```
+
+```{r echo=FALSE}
+plotDir = ifelse(exists(".standalone"), "", "part14/")
+if(plotDir!="") if(!file.exists(plotDir)) dir.create(plotDir)
+```
+
+
+# Target profiling of AZD7762 and PF477736
+
+Cell lysates of K562 cells were used. Binding affinity scores were determined proteome-wide using the kinobead assay (Bantscheff M, Eberhard D, Abraham Y, Bastuck S, Boesche M, Hobson S, Mathieson T, Perrin J, Raida M, Rau C, et al. Quantitative chemical proteomics reveals mechanisms of action of clinical ABL kinase inhibitors. Nat Biotechnol. 2007;25(9):1035-44.).
+
+```{r, echo=FALSE}
+
+# make trasperent 
+makeTransparent = function(..., alpha=0.18) {
+  
+  if(alpha<0 | alpha>1) stop("alpha must be between 0 and 1")
+  
+  alpha = floor(255*alpha)  
+  newColor = col2rgb(col=unlist(list(...)), alpha=FALSE)
+  
+  .makeTransparent = function(col, alpha) {
+    rgb(red=col[1], green=col[2], blue=col[3], alpha=alpha, maxColorValue=255)
+  }
+  
+  newColor = apply(newColor, 2, .makeTransparent, alpha=alpha)
+  
+  return(newColor)
+}
+```
+
+```{r load_affinity_data}
+# AZD7762 binding affinity constants
+azd = read_excel(system.file("extdata","TargetProfiling.xlsx",
+                             package="BloodCancerMultiOmics2017"), sheet = 1)
+
+# PF477736 binding affinity constants
+pf = read_excel(system.file("extdata","TargetProfiling.xlsx",
+                            package="BloodCancerMultiOmics2017"), sheet = 2)
+
+# BCR tagets Proc Natl Acad Sci U S A. 2016 May 17;113(20):5688-93
+pProt = read_excel(system.file("extdata","TargetProfiling.xlsx",
+                               package="BloodCancerMultiOmics2017"),sheet = 3)
+```
+
+Join the results into one data frame.
+```{r}
+p <- full_join(azd, pf )
+p <- full_join(p, pProt )
+
+pp <- p[p$BCR_effect=="Yes",]
+pp <- data.frame(pp[-which(is.na(pp$BCR_effect)),])
+```
+
+
+```{r azd-pf, fig.path=plotDir, dev=c('png','pdf'), fig.width=7, fig.height=4}
+#FIG# 2B
+rownames(pp) <- 1:nrow(pp)
+pp <- as.data.frame(pp)
+pp <- melt(pp)
+colnames(pp)[3] <- "Drugs"
+colnames(pp)[4] <- "Score"
+
+
+ggplot(pp, aes(x= reorder(gene, Score), Score, colour=Drugs ) )+ geom_point(size=3) +
+  
+scale_colour_manual(values = c(makeTransparent("royalblue1", alpha = 0.75),
+                               makeTransparent("royalblue4", alpha = 0.75), 
+                               makeTransparent("brown1", alpha = 0.55),
+                               makeTransparent("brown3", alpha = 0.35)),
+                    
+                    breaks = c("az10", "az2", "pf10", "pf2"),
+                    labels = c("AZD7762 10 µM","AZD7762 2 µM","PF477736 10 µM","PF477736 2 µM") ) +
+  
+  ylab("Binding affinity") +
+  
+  theme_bw() + geom_hline(yintercept = 0.5) +
+  
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.title.x=element_blank() )  
+```
+
+Lower scores indicate stronger physical binding. Here, the data are shown for those proteins that had a score <0.5 in at least one assay, and that were previously identified as responders to B-cell receptor stimulation with IgM in B-cell lines (Corso J, Pan KT, Walter R, Doebele C, Mohr S, Bohnenberger H, Strobel P, Lenz C, Slabicki M, Hullein J, et al. Elucidation of tonic and activated B-cell receptor signaling in Burkitt's lymphoma provides insights into regulation of cell survival. Proc Natl Acad Sci U S A. 2016;113(20):5688-93).
+
+
+The table below shows complete data of targets identified in kinobead assays for AZD7762 and PF477736 at 2 and 10 $\mu$M. A target score of <0.5 indicates a good target specificity. The column BCR indicates if the protein was identified as a B-cell receptor responsive protein after IgM stimulation in Burkitt lymphoma cell lines (Corso _et al._ 2016).
+
+```{r kinobead}
+j <- apply(p[,c("az10", "az2", "pf10", "pf2")], 1, function (x) { min(x, na.rm=FALSE) } )
+
+p <-  p[which(j<0.5), ]
+p <-  unique(p, by = p$gene)
+
+knitr::kable(p)
+```
+
+```{r kinobead_write_file, echo=FALSE, results='hide', eval=FALSE}
+write(print(p), file=paste0(plotDir,"kinobead.tex"))
+```
+
+```{r, include=!exists(".standalone"), eval=!exists(".standalone")}
+sessionInfo()
+```
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+rm(list=ls())
+```

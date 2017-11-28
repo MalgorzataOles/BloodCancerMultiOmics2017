@@ -1,0 +1,1123 @@
+---
+title: "Part 10"
+output:
+  BiocStyle::html_document
+---
+
+```{r, message=FALSE, include=!exists(".standalone"), eval=!exists(".standalone")}
+library("BloodCancerMultiOmics2017")
+library("Biobase")
+library("RColorBrewer")
+library("colorspace") # hex2RGB
+library("ggtern") # ggtern
+library("reshape2") # melt
+library("limma")
+library("pheatmap")
+library("beeswarm")
+library("dplyr")
+library("ggplot2")
+library("tibble") # as_tibble
+library("survival")
+library("SummarizedExperiment")
+library("DESeq2")
+```
+
+```{r echo=FALSE}
+plotDir = ifelse(exists(".standalone"), "", "part10/")
+if(plotDir!="") if(!file.exists(plotDir)) dir.create(plotDir)
+```
+
+```{r}
+options(stringsAsFactors=TRUE)
+```
+
+# Relative drug effects - ternary diagrams
+
+Ternary diagrams are a good visualisation tool to compare the relative drug effects of three selected drugs. Here we call the drugs by their targets (ibrutinib = BTK, idelalisib = PI3K, PRT062607 HCl = SYK, everolimus = mTOR and selumetinib = MEK). We compare the drug effects within CLL samples as well as U-CLL and M-CLL separatelly.
+
+Load the data. 
+```{r}
+data("conctab", "lpdAll", "drugs", "patmeta")
+```
+
+Select CLL patients.
+```{r}
+lpdCLL <- lpdAll[, lpdAll$Diagnosis=="CLL"]
+```
+
+## Additional settings
+
+Function that set the point transparency.
+```{r}
+makeTransparent = function(..., alpha=0.18) {
+  
+  if(alpha<0 | alpha>1) stop("alpha must be between 0 and 1")
+  
+  alpha = floor(255*alpha)  
+  newColor = col2rgb(col=unlist(list(...)), alpha=FALSE)
+  
+  .makeTransparent = function(col, alpha) {
+    rgb(red=col[1], green=col[2], blue=col[3], alpha=alpha, maxColorValue=255)
+  }
+  newColor = apply(newColor, 2, .makeTransparent, alpha=alpha)
+  
+  return(newColor)
+}
+
+giveColors = function(idx, alpha=1) {
+  bp = brewer.pal(12, "Paired")
+  makeTransparent(
+    sequential_hcl(12, h = coords(as(hex2RGB(bp[idx]), "polarLUV"))[1, "H"])[1],
+    alpha=alpha)
+}
+```
+
+## Calculating the coordinates
+
+```{r calculate-input}
+# calculate  (x+c)/(s+3c), (y+c)/(s+3c), (z+c)/(s+3c)
+prepareTernaryData = function(lpd, targets, invDrugs) {
+
+  # calculate values for ternary
+  df = sapply(targets, function(tg) {
+    dr = paste(invDrugs[tg], c(4,5), sep="_")
+    tmp = 1-exprs(lpd)[dr,]
+    tmp = colMeans(tmp)
+    pmax(tmp, 0)
+  })
+  df = data.frame(df, sum=rowSums(df), max=rowMax(df))
+  
+  tern = apply(df[,targets], 2, function(x) {
+    (x+0.005) / (df$sum+3*0.005)
+  })
+  colnames(tern) = paste0("tern", 1:3)
+  # add IGHV status
+  cbind(df, tern, IGHV=patmeta[rownames(df),"IGHV"],
+        treatNaive=patmeta[rownames(df),"IC50beforeTreatment"])
+}
+```
+
+## Plot ternaries
+
+```{r plottingFunction}
+makeTernaryPlot = function(td=ternData, targets, invDrugs) {
+  
+  drn = setNames(drugs[invDrugs[targets],"name"], nm=targets)
+  
+  plot = ggtern(data=td, aes(x=tern1, y=tern2, z=tern3)) +
+        #countours
+        stat_density_tern(geom='polygon', aes(fill=..level..),
+                          position = "identity", contour=TRUE, n=400,
+                          weight = 1, base = 'identity', expand = c(1.5, 1.5)) +  
+        scale_fill_gradient(low='lightblue', high='red', guide = FALSE) +
+     
+        #points
+        geom_mask() + 
+        geom_point(size=35*td[,"max"],
+                   fill=ifelse(td[,"treatNaive"],"green","yellow"),
+                   color="black", shape=21) +
+  
+        #themes
+        theme_rgbw( ) + 
+        theme_custom(
+          col.T=giveColors(2),
+          col.L=giveColors(10),
+          col.R=giveColors(4),
+          tern.plot.background="white", base_size = 18 ) +
+    
+    labs( x = targets[1], xarrow = drn[targets[1]],
+              y = targets[2], yarrow = drn[targets[2]],
+              z = targets[3], zarrow = drn[targets[3]] ) +
+              theme_showarrows() + theme_clockwise() +
+    
+        # lines 
+        geom_Tline(Tintercept=.5, colour=giveColors(2)) +
+        geom_Lline(Lintercept=.5, colour=giveColors(10)) +
+        geom_Rline(Rintercept=.5, colour=giveColors(4)) 
+
+   plot
+}
+```
+
+```{r}
+# RUN TERNARY
+makeTernary = function(lpd, targets, ighv=NA) {
+
+  # list of investigated drugs and their targets
+  invDrugs = c("PI3K"="D_003", "BTK"="D_002", "SYK"="D_166",
+               "MTOR"="D_063", "MEK"="D_012")
+  
+  ternData = prepareTernaryData(lpd, targets, invDrugs)
+  if(!is.na(ighv)) ternData = ternData[which(ternData$IGHV==ighv),]
+  
+  print(table(ternData$treatNaive))
+  ternPlot = makeTernaryPlot(ternData, targets, invDrugs)
+  
+  ternPlot
+}
+```
+
+### BCR drugs
+
+```{r BCR-tern-CLL, fig.path=plotDir, dev=c('png','pdf'), fig.width = 7, fig.height = 7}
+#FIG# 3B
+makeTernary(lpdCLL, c("PI3K", "BTK", "SYK"), ighv=NA)
+```
+
+```{r BCR-tern-MCLL, fig.path=plotDir, dev=c('png','pdf'), fig.width = 7, fig.height = 7}
+#FIG# 3B
+makeTernary(lpdCLL, c("PI3K", "BTK", "SYK"), ighv="M")
+```
+
+```{r BCR-tern-UCLL, fig.path=plotDir, dev=c('png','pdf'), fig.width = 7, fig.height = 7}
+#FIG# 3B
+makeTernary(lpdCLL, c("PI3K", "BTK", "SYK"), ighv="U")
+```
+
+### BTK & MEK & MTOR
+
+```{r MEK-mTOR-tern, fig.path=plotDir, dev=c('png','pdf'), fig.width = 7, fig.height = 7}
+#FIG# 3BC
+makeTernary(lpdCLL, c("MTOR", "BTK", "MEK"), ighv=NA)
+```
+
+```{r MEK-mTOR-tern-MCLL, fig.path=plotDir, dev=c('png','pdf'), fig.width = 7, fig.height = 7}
+#FIG# 3BC
+makeTernary(lpdCLL, c("MTOR", "BTK", "MEK"), ighv="M")
+```
+
+```{r MEK-mTOR-tern-UCLL, fig.path=plotDir, dev=c('png','pdf'), fig.width = 7, fig.height = 7}
+#FIG# 3BC
+makeTernary(lpdCLL, c("MTOR", "BTK", "MEK"), ighv="U")
+```
+
+### PI3K & MEK & MTOR
+
+All CLL samples included.
+```{r PI3K-MEK-mTOR-tern-CLL, fig.path=plotDir, dev=c('png','pdf'), fig.width = 7, fig.height = 7}
+#FIG# S9 left
+makeTernary(lpdCLL, c("MTOR", "PI3K", "MEK"), ighv=NA)
+```
+
+### SYK & MEK & MTOR
+
+All CLL samples included.
+```{r SYK-MEK-mTOR-tern-CLL, fig.path=plotDir, dev=c('png','pdf'), fig.width = 7, fig.height = 7}
+#FIG# S9 right
+makeTernary(lpdCLL, c("MTOR", "SYK", "MEK"), ighv=NA)
+```
+
+# Comparison of gene expression responses to drug treatments
+
+12 CLL samples (6 M-CLL and 6 U-CLL) were treated with ibrutinb, idelalisib, selumetinib, everolimus and negative control. Gene expression profiling was performed after 12 hours of drug incubation using Illumina microarrays.
+
+Load the data.
+```{r}
+data("exprTreat", "drugs")
+```
+
+Do some cosmetics.
+```{R}
+e <- exprTreat
+colnames( pData(e) ) <- sub( "PatientID", "Patient", colnames( pData(e) ) )
+colnames( pData(e) ) <- sub( "DrugID", "Drug", colnames( pData(e) ) )
+pData(e)$Drug[ is.na(pData(e)$Drug) ] <- "none"
+pData(e)$Drug <- relevel( factor( pData(e)$Drug ), "none" )
+pData(e)$SampleID <- colnames(e)
+colnames(e) <- paste( pData(e)$Patient, pData(e)$Drug, sep=":" )
+
+head( pData(e) )
+```
+
+Remove uninteresting fData columns
+```{r}
+fData(e) <- fData(e)[ , c( "ProbeID", "Entrez_Gene_ID", "Symbol", 
+    "Cytoband", "Definition" ) ]
+```
+
+Here is a simple heat map of correlation between arrays.
+```{r}
+pheatmap( cor(exprs(e)), symm=TRUE, cluster_rows = FALSE, cluster_cols = FALSE, 
+   color = colorRampPalette(c("gray10","lightpink"))(100) )
+```
+
+## Differential expression using Limma
+
+Construct a model matrix with a baseline expression per patient, treatment effects
+for all drugs, and symmetric (+/- 1/2) effects for U-vs-M differences in drug effects.
+
+```{r}
+mm <- model.matrix( ~ 0 + Patient + Drug, pData(e) )
+colnames(mm) <- sub( "Patient", "", colnames(mm) )
+colnames(mm) <- sub( "Drug", "", colnames(mm) )
+head(mm)
+```
+
+Run LIMMA on this.
+
+```{r}
+fit <- lmFit( e, mm )
+fit <- eBayes( fit )
+```
+
+How many genes do we get that are significantly differentially expressed due to
+a drug, at 10% FDR?
+
+```{r}
+a <- decideTests( fit, p.value = 0.1 )
+t( apply( a[ , grepl( "D_...", colnames(a) ) ], 2, 
+          function(x) table( factor(x,levels=c(-1,0,1)) ) ) )
+```
+
+What is the % overlap of genes across drugs? 
+
+```{r overlap}
+a <-
+sapply( levels(pData(e)$Drug)[-1], function(dr1) 
+   sapply( levels(pData(e)$Drug)[-1], function(dr2) 
+     
+   100*( length( intersect(
+          unique( topTable( fit, coef=dr1, p.value=0.1,
+                            number=Inf )$`Entrez_Gene_ID` ),
+          unique( topTable( fit, coef=dr2, p.value=0.1,
+                            number=Inf )$`Entrez_Gene_ID` ) ) ) / 
+                      length(unique( topTable( fit, coef=dr1, p.value=0.1,
+                                               number=Inf )$`Entrez_Gene_ID`)))
+     ) 
+   )
+
+rownames(a) <-drugs[ rownames(a), "name" ]
+colnames(a) <-rownames(a)
+a <- a[-4, -4]
+a
+```
+
+Correlate top 2000 genes with median largest lfc with each other:
+
+1. For each patient and drug, compute the LFC (log fold changed) treated/untreated
+2. Select the 2000 genes that have the highest across all patients and drugs (median absolute LFC)
+3. Compute the average LFC for each drug across the patients, resulting in 4 vectors of length 2000 (one for each drug) 
+4. Compute the pairwise correlation between them
+
+```{r corrGenes}
+extractGenes = function(fit, coef) {
+  tmp = topTable(fit, coef=coef, number=Inf )[, c("ProbeID", "logFC")]
+  rownames(tmp) = tmp$ProbeID
+  colnames(tmp)[2] = drugs[coef,"name"]
+  tmp[order(rownames(tmp)),2, drop=FALSE]
+}
+
+runExtractGenes = function(fit, drs) {
+  tmp = do.call(cbind, lapply(drs, function(dr) {
+    extractGenes(fit, dr)
+  }))
+  as.matrix(tmp)
+}
+
+mt = runExtractGenes(fit, drs=c("D_002","D_003","D_012","D_063"))
+```
+
+```{r}
+mt <- cbind( mt, median=rowMedians(mt))
+mt <- mt[order(mt[,"median"]), ]
+mt <- mt[1:2000, ]
+mt <- mt[,-5]
+```
+
+```{r}
+(mtcr = cor(mt))
+```
+
+```{r plot-corrGenes, fig.path=plotDir, fig.width = 4, fig.height = 4, dev = c("png", "pdf")}
+#FIG# 3D
+pheatmap(mtcr, cluster_rows = FALSE, cluster_cols = FALSE,
+         col=colorRampPalette(c("white", "lightblue","darkblue") )(100))
+```
+
+# Co-sensitivity patterns of the four response groups
+
+Load data.
+```{r}
+data("lpdAll", "drugs")
+```
+
+```{r}
+lpdCLL <- lpdAll[ , lpdAll$Diagnosis== "CLL"]
+```
+
+## Methodology of building groups
+
+
+Here we look at the distribution of viabilities for the three drugs concerned and use the mirror method to derive, first, a measure of the background variation of the values for these drugs (`ssd`) and then define a cutoff as multiple (`z_factor`) of that. The mirror method assumes that the observed values are a mixture of two components:
+
+- a null distribution, which is symmetric about 1, and
+- responder distribution, which has negligible mass above 1.
+
+The choice of `z_factor` is, of course, a crucial step.
+It determines the trade-off between falsely called responders (false positives)
+versus falsely called non-responders (false negatives).
+Under normality assumption, it is related to the false positive rate (FPR) by
+
+$$
+\text{FPR} = 1 - \text{pnorm}(z)
+$$
+
+An FPR of 0.05 thus corresponds to 
+```{r z_factor}
+z_factor <- qnorm(0.05, lower.tail = FALSE)
+z_factor
+```
+
+Defining drugs representing BTK, mTOR and MEK inhibition. 
+```{r seldrugs}
+drugnames <- c( "ibrutinib", "everolimus", "selumetinib")
+ib  <- "D_002_4:5" 
+ev  <- "D_063_4:5" 
+se  <- "D_012_4:5"
+stopifnot(identical(fData(lpdAll)[c(ib, ev, se), "name"], drugnames))
+```
+
+```{r}
+df  <- exprs(lpdAll)[c(ib, ev, se), lpdAll$Diagnosis=="CLL"] %>%
+  t %>% as_tibble %>% `colnames<-`(drugnames)
+```
+```{r}
+mdf <- melt(data.frame(df))
+```
+
+```{r scatter2, fig.width = 7, fig.height = 3.5, fig.path=plotDir}
+grid.arrange(ncol = 2,
+  ggplot(df, aes(x = 1-ibrutinib,  y = 1-everolimus )) + geom_point(),
+  ggplot(df, aes(x = 1-everolimus, y = 1-selumetinib)) + geom_point()  
+  )
+```
+
+Determine standard deviation using mirror method.
+```{r mirror}
+pmdf <- filter(mdf, value >= 1)
+ssd  <- mean( (pmdf$value - 1) ^ 2 ) ^ 0.5
+ssd
+```
+
+Normal density.
+```{r dnorm}
+dn <- tibble(
+  x = seq(min(mdf$value), max(mdf$value), length.out = 100),
+  y = dnorm(x, mean = 1, sd = ssd) * 2 * nrow(pmdf) / nrow(mdf) 
+)
+```
+
+First, draw histogram for all three drugs pooled.
+```{r hist1, fig.width = 10, fig.height = 5, dev = c("png", "pdf"), fig.path=plotDir}
+#FIG# S10 A
+thresh   <- 1 - z_factor * ssd
+thresh
+hh <- ggplot() +
+  geom_histogram(aes(x = value, y = ..density..),
+                 binwidth = 0.025, data = mdf) +
+  theme_minimal() +
+  geom_line(aes(x = x, y = y), col = "darkblue", data = dn) +
+  geom_vline(col = "red", xintercept = thresh)
+hh
+```
+
+Then split by drug.
+```{r hist2, fig.width = 10, fig.height = 5, dev = c("png", "pdf"), fig.path=plotDir}
+hh + facet_grid( ~ variable)
+```
+
+Decision rule.
+```{r dec}
+thresh 
+
+df <- mutate(df,
+  group = ifelse(ibrutinib < thresh, "BTK",
+          ifelse(everolimus < thresh, "mTOR",
+          ifelse(selumetinib < thresh, "MEK", "Non-responder")))
+)
+```
+
+Present the decision rule in the plots.
+```{r scatter3, fig.width = 10, fig.height = 5, dev = c("png", "pdf"), fig.path=plotDir, warning=FALSE}
+#FIG# S10 B
+mycol <- c(`BTK` = "Royalblue4",
+           `mTOR` = "chartreuse4",
+           `MEK` = "mediumorchid4",
+           `Non-responder` = "grey61")
+
+plots <- list(
+  ggplot(df, aes(x = 1-ibrutinib,  y = 1-everolimus)),
+  ggplot(filter(df, group != "BTK"), aes(x = 1-selumetinib, y = 1-everolimus))
+)
+
+plots <- lapply(plots, function(x)
+  x + geom_point(aes(col = group), size = 1.5) + theme_minimal() +
+    coord_fixed() + 
+    scale_color_manual(values = mycol) +
+    geom_hline(yintercept = 1 - thresh) + 
+    geom_vline(xintercept = 1- thresh) +
+    ylim(-0.15, 0.32) + xlim(-0.15, 0.32) 
+    
+)
+
+grid.arrange(ncol = 2, grobs  = plots)
+```
+
+The above roules of stratification of patients into drug response groups is contained within `defineResponseGroups` function inside the package.
+
+```{r}
+sel = defineResponseGroups(lpd=lpdAll)
+```
+
+## Mean of each group
+
+```{r co-sens-all}
+# colors
+c1 = giveColors(2, 0.5)
+c2 = giveColors(4, 0.85)
+c3 = giveColors(10, 0.75)
+
+# vectors
+p <- vector(); d <- vector();
+pMTOR <- vector(); pBTK <- vector(); pMEK <- vector(); pNONE <- vector()
+dMTOR <- vector(); dBTK <- vector(); dMEK <- vector(); dNONE <- vector()
+dMTOR_NONE <- vector(); pMTOR_NONE <- vector()
+
+# groups                               
+sel$grMTOR_NONE <- ifelse(sel$group=="mTOR", "mTOR", NA)
+sel$grMTOR_NONE <- ifelse(sel$group=="none", "none", sel$grMTOR_NONE)
+
+sel$grMTOR <- ifelse(sel$group=="mTOR", "mTOR", "rest")
+sel$col <- ifelse(sel$group=="mTOR", c3, "grey")
+sel$grBTK  <- ifelse(sel$group=="BTK",  "BTK", "rest")
+sel$col <- ifelse(sel$group=="BTK",  c1, sel$col)
+sel$grMEK  <- ifelse(sel$group=="MEK",  "MEK", "rest")
+sel$col <- ifelse(sel$group=="MEK",  c2, sel$col)
+sel$grNONE <- ifelse(sel$group=="none", "none", "rest")
+
+
+
+for (i in 1: max(which(fData(lpdCLL)$type=="viab"))) {
+  
+  fit <- aov(exprs(lpdCLL)[i, rownames(sel)] ~ sel$group)
+  p[i] <- summary(fit)[[1]][["Pr(>F)"]][1]
+  
+  
+  calc_p = function(clmn) {
+    p.adjust(
+      t.test(exprs(lpdCLL)[i, rownames(sel)] ~ sel[,clmn],
+             alternative = c("two.sided") )$p.value, "BH" )
+  }
+  
+  calc_d = function(clmn) {
+    diff(
+      t.test(exprs(lpdCLL)[i, rownames(sel)] ~ sel[,clmn])$estimate,
+      alternative = c("two.sided") )
+  }
+  
+  pMTOR_NONE[i] <- calc_p("grMTOR_NONE")
+  dMTOR_NONE[i] <- calc_d("grMTOR_NONE")
+  
+  pMTOR[i] <- calc_p("grMTOR")
+  dMTOR[i] <- calc_d("grMTOR")
+ 
+  pBTK[i] <- calc_p("grBTK")
+  dBTK[i] <- calc_d("grBTK")
+ 
+  pMEK[i] <- calc_p("grMEK")
+  dMEK[i] <- calc_d("grMEK")
+ 
+  pNONE[i] <- calc_p("grNONE")
+  dNONE[i] <- calc_d("grNONE")
+ 
+  # drugnames
+  d[i] <- rownames(lpdCLL)[i]
+}
+```
+
+
+```{r heatmap_mean_4_5, fig.path=plotDir, fig.width = 6, fig.height = 8, dev = c("png", "pdf")}
+#FIG# 3F
+#construct data frame
+ps <- data.frame(drug=d, pMTOR, pBTK, pMEK, pNONE, p )
+ds <- data.frame(dMTOR, dBTK, dMEK, dNONE)
+rownames(ps) <- ps[,1]; rownames(ds) <- ps[,1]
+
+# selcet only rows for singel concentrations, set non-sig to zero 
+ps45 <- ps[rownames(ps)[grep(rownames(ps), pattern="_4:5")],2:5 ]
+for (i in 1:4) { ps45[,i] <- ifelse(ps45[,i]<0.05, ps45[,i], 0) }
+
+ds45 <- ds[rownames(ds)[grep(rownames(ds), pattern="_4:5")],1:4 ]
+for (i in 1:4) { ds45[,i] <- ifelse(ps45[,i]<0.05, ds45[,i], 0) }
+
+# exclude non-significant rows
+selDS <- rownames(ds45)[rowSums(ps45)>0]
+selPS <- rownames(ps45)[rowSums(ps45)>0]
+ps45 <- ps45[selPS, ]
+ds45 <- ds45[selDS, ]
+
+groupMean = function(gr) {
+  rowMeans(exprs(lpdCLL)[rownames(ps45), rownames(sel)[sel$group==gr]])
+}
+
+MBTK <- groupMean("BTK")
+MMEK <- groupMean("MEK")
+MmTOR <- groupMean("mTOR")
+MNONE <- groupMean("none")
+
+# create data frame, new colnames
+ms <- data.frame(BTK=MBTK, MEK=MMEK, mTOR=MmTOR, NONE=MNONE)
+colnames(ms) <- c("BTK", "MEK", "mTOR", "WEAK")
+rownames(ms) <- drugs[substr(selPS, 1,5), "name"]
+
+# select rows with effect sizes group vs. rest >0.05
+ms <- ms[ which(rowMax(as.matrix(ds45)) > 0.05 ) ,  ]
+
+# exclude some drugs
+ms <- ms[-c(
+  which(rownames(ms) %in%
+          c("everolimus", "ibrutinib", "selumetinib", "bortezomib"))),]
+
+pheatmap(ms[, c("MEK", "BTK","mTOR", "WEAK")], cluster_cols = FALSE,
+         cluster_rows =TRUE, clustering_method = "centroid",
+         scale = "row",
+         color=colorRampPalette(
+           c(rev(brewer.pal(7, "YlOrRd")), "white", "white", "white",
+             brewer.pal(7, "Blues")))(101)
+        )
+```
+
+## Bee swarm plots for groups 
+
+For selected drugs, we show differences of drug response between patient response groups.
+
+```{r sel-beeswarm, fig.path=plotDir, fig.width = 7, fig.height = 5.5, dev = c("png", "pdf")}
+#FIG# 3G
+# drug label
+giveDrugLabel3 <- function(drid) {
+  vapply(strsplit(drid, "_"), function(x) {
+    k <- paste(x[1:2], collapse="_")
+    paste0(drugs[k, "name"])
+  }, character(1))
+}
+
+groups = sel[,"group", drop=FALSE]
+groups[which(groups=="none"), "group"] = "WEAK"
+
+# beeswarm function
+beeDrug <- function(xDrug) {
+ 
+   par(bty="l", cex.axis=1.5)
+   beeswarm(
+     exprs(lpdCLL)[xDrug, rownames(sel)] ~ groups$group,
+     axes=FALSE, cex.lab=1.5, ylab="Viability", xlab="", pch = 16,
+     pwcol=sel$col, cex=1,
+     ylim=c(min( exprs(lpdCLL)[xDrug, rownames(sel)] ) - 0.05, 1.2) )
+ 
+   boxplot(exprs(lpdCLL)[xDrug, rownames(sel)] ~ groups$group,  add = T,
+           col="#0000ff22", cex.lab=2, outline = FALSE) 
+   
+   mtext(side=3, outer=F, line=0, 
+       paste0(giveDrugLabel3(xDrug) ), cex=2) 
+}
+ 
+
+beeDrug("D_001_4:5")
+beeDrug("D_081_4:5")
+beeDrug("D_013_4:5")
+beeDrug("D_003_4:5")
+beeDrug("D_020_4:5")
+beeDrug("D_165_3")
+```
+
+
+# Kaplan-Meier plot for groups (time from sample to next treatment)
+
+```{r surv, fig.path=plotDir, fig.width = 8, fig.height = 8, dev = c("png", "pdf") }
+#FIG# S11 A
+patmeta[, "group"] <- sel[rownames(patmeta), "group"]
+
+c1n <- giveColors(2)
+c2n <- giveColors(4)
+c3n <- giveColors(10)
+c4n <- "lightgrey"
+
+survplot(Surv(patmeta[ , "T5"],
+              patmeta[ , "treatedAfter"] == TRUE)  ~ patmeta$group ,
+  lwd=3, cex.axis = 1.2, cex.lab=1.5, col=c(c1n, c2n, c3n, c4n), 
+  data = patmeta,  
+  legend.pos = 'bottomleft', stitle = 'Drug response', 
+  xlab = 'Time (years)', ylab = 'Patients without treatment (%)',
+)
+```
+
+# Incidence of somatic gene mutations and CNVs in the four groups
+
+Load data.
+```{r}
+data(lpdAll)
+```
+
+Select CLL patients.
+```{r selectCLL}
+lpdCLL <- lpdAll[ , lpdAll$Diagnosis== "CLL"]
+```
+
+Build groups.
+```{r}
+sel = defineResponseGroups(lpd=lpdAll)
+```
+
+Calculate total number of mutations per patient.
+```{r}
+genes <- data.frame(
+  t(exprs(lpdCLL)[fData(lpdCLL)$type %in% c("gen", "IGHV"), rownames(sel)]),
+  group = factor(sel$group)
+)
+
+genes <- genes[!(is.na(rownames(genes))), ]
+colnames(genes) %<>%
+  sub("del13q14_any", "del13q14", .) %>%
+  sub("IGHV.Uppsala.U.M", "IGHV", .)
+
+Nmut = rowSums(genes[, colnames(genes) != "group"], na.rm = TRUE)
+
+mf <- sapply(c("BTK", "MEK", "mTOR", "none"), function(i) 
+  mean(Nmut[genes$group==i]) 
+)
+```
+
+```{r bp, fig.width = 4, fig.height = 3.5}
+barplot(mf, ylab="Total number of mutations/CNVs per patient", col="darkgreen")
+```
+
+Test each mutation, and each group, marginally for an effect. 
+```{r mutationTests}
+mutsUse <- setdiff( colnames(genes), "group" )
+mutsUse <- mutsUse[ colSums(genes[, mutsUse], na.rm = TRUE) >= 4 ]
+mutationTests <- lapply(mutsUse, function(m) {
+  tibble(
+    mutation = m, 
+    p = fisher.test(genes[, m], genes$group)$p.value)
+}) %>% bind_rows  %>% mutate(pBH = p.adjust(p, "BH")) %>% arrange(p)
+
+mutationTests <- mutationTests %>% filter(pBH < 0.1)
+```
+
+Number of mutations with the p-value meeting the threshold.
+```{r numMutationTests, fig.width = 3, fig.height = 2}
+nrow(mutationTests)
+```
+
+```{r groupTests}
+groupTests <- lapply(unique(genes$group), function(g) {
+  tibble(
+    group = g, 
+    p = fisher.test(
+      colSums(genes[genes$group == g, mutsUse], na.rm=TRUE),
+      colSums(genes[genes$group != g, mutsUse], na.rm=TRUE),
+      simulate.p.value = TRUE, B = 10000)$p.value)
+}) %>% bind_rows %>% arrange(p)
+
+groupTests 
+```
+
+These results show that __each__ of the groups has an imbalanced mutation distribution, and that each of the above-listed mutations is somehow imbalanced between the groups.
+
+## Test gene mutations vs. groups
+
+Fisher.test genes vs. groups function. Below function assumes that `g` is a data.frame one of whose columns is `group` 
+and all other columns are numeric (i.e., 0 or 1) mutation indicators. 
+```{r ft}
+fisher.genes <- function(g, ref) {
+  stopifnot(length(ref) == 1)
+  ggg <- ifelse(g$group == ref, ref, "other")
+  idx <- which(colnames(g) != "group") 
+  
+  lapply(idx, function(i)
+    if (sum(g[, i], na.rm = TRUE) > 2) {
+      ft  <- fisher.test(ggg, g[, i])
+      tibble(
+        p    = ft$p.value,
+        es   = ft$estimate, 
+        prop = sum((ggg == ref) & !is.na(g[, i]), na.rm = TRUE),
+        mut1 = sum((ggg == ref) & (g[, i] != 0),  na.rm = TRUE),
+        gene = colnames(g)[i])
+    }  else {
+      tibble(p = 1, es = 1, prop = 0, mut1 = 0, gene = colnames(g)[i])
+    }
+  ) %>% bind_rows
+}
+```
+
+Calculate p values and effects using the Fisher test and group of interest vs. rest.
+```{r}
+pMTOR <- fisher.genes(genes, ref="mTOR") 
+pBTK  <- fisher.genes(genes, ref="BTK") 
+pMEK  <- fisher.genes(genes, ref="MEK") 
+pNONE <- fisher.genes(genes, ref="none")
+
+p    <- cbind(pBTK$p,    pMEK$p,    pMTOR$p,    pNONE$p)
+es   <- cbind(pBTK$es,   pMEK$es,   pMTOR$es,   pNONE$es)
+prop <- cbind(pBTK$prop, pMEK$prop, pMTOR$prop, pNONE$prop)
+mut1 <- cbind(pBTK$mut1, pMEK$mut1, pMTOR$mut1, pNONE$mut1)
+```
+
+Prepare matrix for heatmap.
+```{r prepmat}
+p <- ifelse(p < 0.05, 1, 0) 
+p <- ifelse(es <= 1, p, -p) 
+rownames(p) <- pMTOR$gene
+colnames(p) <- c("BTK", "MEK", "mTOR", "NONE")
+
+pM <- p[rowSums(abs(p))!=0, ]
+propM <- prop[rowSums(abs(p))!=0, ]
+```
+
+Cell labels.
+```{r}
+N <- cbind( paste0(mut1[,1],"/",prop[,1] ),
+            paste0(mut1[,2],"/",prop[,2] ), 
+            paste0(mut1[,3],"/",prop[,3] ),
+            paste0(mut1[,4],"/",prop[,4] )
+)
+
+rownames(N) <- rownames(p)
+```
+
+Draw the heatmap only for significant factors in mutUse. 
+Selection criteria for mutUse are >=4 mutations and adjusted p.value < 0.1 for 4x2 fisher test groups (mtor, mek, btk, none) vs mutation. 
+```{r heatmap2_1, fig.path=plotDir, fig.width = 7, fig.height = 7, dev = c("png", "pdf")}
+#FIG# S11 B
+mutationTests <-
+  mutationTests[which(!(mutationTests$mutation %in%
+                          c("del13q14_bi", "del13q14_mono"))), ]
+pMA <- p[mutationTests$mutation, ]
+pMA
+
+pheatmap(pMA, cluster_cols = FALSE, 
+         cluster_rows = FALSE, legend=TRUE, annotation_legend = FALSE, 
+         color = c("red", "white", "lightblue"),
+         display_numbers = N[ rownames(pMA), ]
+        )
+```
+
+# Differences in gene expression profiles between drug-response groups
+
+```{r}
+data("dds")
+
+sel = defineResponseGroups(lpd=lpdAll)
+sel$group = gsub("none","weak", sel$group)
+```
+
+```{r}
+# select patients with CLL in the main screen data 
+colnames(dds) <- colData(dds)$PatID
+pat <- intersect(colnames(lpdCLL), colnames(dds))
+dds_CLL <- dds[,which(colData(dds)$PatID %in% pat)]
+
+# add group label 
+colData(dds_CLL)$group <- factor(sel[colnames(dds_CLL), "group"])
+colData(dds_CLL)$IGHV = factor(patmeta[colnames(dds_CLL),"IGHV"])
+```
+
+Select genes with most variable expression levels.
+```{r} 
+vsd <- varianceStabilizingTransformation( assay(dds_CLL) )
+colnames(vsd) = colData(dds_CLL)$PatID
+rowVariance <- setNames(rowVars(vsd), nm=rownames(vsd))
+sortedVar <- sort(rowVariance, decreasing=TRUE)
+mostVariedGenes <- sortedVar[1:10000]
+dds_CLL <- dds_CLL[names(mostVariedGenes), ]
+```
+
+Run DESeq2.
+```{r}
+cb <- combn(unique(colData(dds_CLL)$group), 2)
+
+gg <- list(); ggM <- list(); ggU <- list()
+DE <- function(ighv) {
+ for (i in 1:ncol(cb)) {
+   dds_sel <- dds_CLL[,which(colData(dds_CLL)$IGHV %in% ighv)]
+   dds_sel <- dds_sel[,which(colData(dds_sel)$group %in% cb[,i])]
+   design(dds_sel) = ~group
+   dds_sel$group <- droplevels(dds_sel$group)
+   dds_sel$group <- relevel(dds_sel$group, ref=as.character(cb[2,i]) )
+   dds_sel <- DESeq(dds_sel)
+   res <- results(dds_sel)
+   gg[[i]] <- res[order(res$padj, decreasing = FALSE), ]
+   names(gg)[i] <- paste0(cb[1,i], "_", cb[2,i])
+ }
+return(gg)
+}
+```
+
+```{r eval=FALSE}
+ggM <- DE(ighv="M")
+ggU <- DE(ighv="U")
+gg <- DE(ighv=c("M", "U"))
+```
+
+```{r echo=FALSE, eval=FALSE}
+save(ggM, ggU, gg, file=paste0(plotDir,"gexGroups.RData"))
+```
+
+The above code is not executed due to long running time. We load the output from the presaved object instead.
+```{r echo=TRUE, eval=TRUE}
+load(system.file("extdata","gexGroups.RData", package="BloodCancerMultiOmics2017"))
+```
+
+We use biomaRt package to map ensembl gene ids to hgnc gene symbols. The maping requires Internet connection and to omit this obstacle we load the presaved output. For completness, we provide the code used to generate the mapping.
+
+```{r, eval=FALSE}
+library("biomaRt")
+# extract all ensembl ids
+allGenes = unique(unlist(lapply(gg, function(x) rownames(x))))
+# get gene ids for ensembl ids
+genSymbols = getBM(filters="ensembl_gene_id",
+                   attributes=c("ensembl_gene_id", "hgnc_symbol"),
+                   values=allGenes, mart=mart)
+# select first id if more than one is present
+genSymbols = genSymbols[!duplicated(genSymbols[,"ensembl_gene_id"]),]
+# set rownames to ens id
+rownames(genSymbols) = genSymbols[,"ensembl_gene_id"]
+```
+
+```{r echo=TRUE, eval=TRUE}
+load(system.file("extdata","genSymbols.RData", package="BloodCancerMultiOmics2017"))
+```
+
+
+Correlation of IL-10 mRNA expression and response to everolimus within the mTOR subgroup.
+
+```{r IL10, fig.width=6.5, fig.height=6.5, dev = c("png", "pdf"), fig.path=plotDir}
+#FIG# S14
+gen="ENSG00000136634" #IL10
+drug   <- "D_063_4:5" 
+
+patsel <- intersect( rownames(sel)[sel$group %in% c("mTOR")], colnames(vsd) )
+
+c <- cor.test( exprs(lpdCLL)[drug, patsel], vsd[gen, patsel] )
+
+# get hgnc_symbol for gen
+# mart = useDataset("hsapiens_gene_ensembl", useMart("ensembl"))
+# genSym = getBM(filters="ensembl_gene_id", attributes="hgnc_symbol",
+# values=gen, mart=mart)
+genSym = genSymbols[gen, "hgnc_symbol"]
+
+plot(vsd[gen, patsel], exprs(lpdCLL)[drug, patsel],
+     xlab=paste0(genSym, " expression"),
+     ylab="Viability (everolimus)", pch=19, ylim=c(0.70, 0.92), col="purple",
+     main = paste0("mTOR-group", "\n cor = ", round(c$estimate, 3),
+                   ", p = ", signif(c$p.value,2 )),
+     cex=1.2)
+abline(lm(exprs(lpdCLL)[drug, patsel] ~ vsd[gen, patsel]))
+```
+
+Set colors.
+```{r}
+c1 = giveColors(2, 0.4)
+c2 = giveColors(4, 0.7)
+c3 = giveColors(10, 0.6)
+```
+
+Function which extracts significant genes.
+```{r}
+sigEx <- function(real) {
+  
+  ggsig = lapply(real, function(x) {
+    x = data.frame(x)
+    x = x[which(!(is.na(x$padj))),]
+    x = x[x$padj<0.1,]
+    x = x[order(x$padj, decreasing = TRUE),]
+    x = data.frame(x[ ,c("padj","log2FoldChange")], ensg=rownames(x) )
+    x$hgnc1 = genSymbols[rownames(x), "hgnc_symbol"]
+    x$hgnc2 = ifelse(x$hgnc1=="" | x$hgnc1=="T" | is.na(x$hgnc1),
+                     as.character(x$ensg), x$hgnc1)
+    x[-(grep(x[,"hgnc2"], pattern="IG")),]
+  })
+  return(ggsig)
+}
+```
+
+```{r}
+barplot1 <- function(real, tit) { 
+  
+  # process real diff genes
+  sigExPlus = sigEx(real)
+  ng <- lapply(sigExPlus, function(x){ cbind(
+    up=nrow(x[x$log2FoldChange>0, ]),
+    dn=nrow(x[x$log2FoldChange<0, ]) ) } ) 
+  ng = melt(ng)
+
+  p <- ggplot(ng, aes(reorder(L1, -value)), ylim(-500:500)) + 
+    geom_bar(data = ng, aes(y =  value, fill=Var2), stat="identity",
+             position=position_dodge() ) +
+    scale_fill_brewer(palette="Paired", direction = -1,
+                      labels = c("up", "down")) +
+    ggtitle(label=tit) +
+    
+    geom_hline(yintercept = 0,colour = "grey90") + 
+    theme(
+           panel.grid.minor = element_blank(),
+           
+           axis.title.x = element_blank(),
+           axis.text.x = element_text(size=14, angle = 60, hjust = 1),
+           axis.ticks.x = element_blank(),
+           
+           axis.title.y  = element_blank(),
+           axis.text.y = element_text(size=14, colour="black"),
+           axis.line.y = element_line(colour = "black",
+                                      size = 0.5, linetype = "solid"),
+           
+           legend.key = element_rect(fill = "white"),
+           legend.background = element_rect(fill = "white"),
+           legend.title = element_blank(),
+           legend.text = element_text(size=14, colour="black"),
+  
+           panel.background = element_rect(fill = "white", color="white")
+          ) 
+  
+  plot(p) 
+}
+```
+
+
+```{r deGroups, fig.width = 10, fig.height = 7, dev = c("png", "pdf"), fig.path=plotDir}
+#FIG# S11 C
+barplot1(real=gg, tit="")
+```
+
+## Cytokine / chemokine expression in mTOR group
+
+Here we compare expression levels of cytokines/chemokines within the mTOR group.
+
+Set helpful functions.
+```{r}
+# beeswarm funtion
+beefun <- function(df, sym) {
+ par(bty="l", cex.axis=1.5)
+ beeswarm(df$x ~ df$y, axes=FALSE, cex.lab=1.5, col="grey", ylab=sym, xlab="",
+          pch = 16, pwcol=sel[colnames(vsd),"col"], cex=1.3)
+ 
+ boxplot(df$x ~ df$y, add = T, col="#0000ff22", cex.lab=1.5) 
+}
+```
+
+Bulid response groups.
+```{r groups}
+sel = defineResponseGroups(lpdCLL)
+sel[,1:3] = 1-sel[,1:3]
+sel$IGHV = pData(lpdCLL)[rownames(sel), "IGHV Uppsala U/M"]
+
+c1 = giveColors(2, 0.5)
+c2 = giveColors(4, 0.85)
+c3 = giveColors(10, 0.75)
+
+# add colors
+sel$col <- ifelse(sel$group=="mTOR", c3, "grey")
+sel$col <- ifelse(sel$group=="BTK",  c1, sel$col)
+sel$col <- ifelse(sel$group=="MEK",  c2, sel$col)
+```
+
+For each cytokine/chemokine we compare level of expression between the response groups. 
+
+```{r}
+cytokines <- c("CXCL2","TGFB1","CCL2","IL2","IL12B","IL4","IL6","IL10","CXCL8",
+               "TNF")
+cyEN =  sapply(cytokines, function(i) {
+  genSymbols[which(genSymbols$hgnc_symbol==i)[1],"ensembl_gene_id"]
+})
+
+makeEmpty = function() {
+  data.frame(matrix(ncol=3, nrow=length(cyEN),
+                    dimnames=list(names(cyEN), c("BTK", "MEK", "mTOR"))) )
+}
+p = makeEmpty()
+ef = makeEmpty()
+```
+
+```{r CYTOKINES, fig.path=plotDir, fig.width=7, fig.height=5.5, dev=c("png", "pdf")}
+for (i in 1:length(cyEN) ) {
+ 
+ geneID <- cyEN[i]
+ df <- data.frame(x=vsd[geneID,  ], y=sel[colnames(vsd) ,"group"])
+ df$y <- as.factor(df$y)
+
+ beefun(df, sym=names(geneID))
+ 
+ df <- within(df, y <- relevel(y, ref = "none"))
+ fit <- lm(x ~y, data=df)
+ 
+ p[i,] <- summary(fit)$coefficients[ 2:4, "Pr(>|t|)"]
+ 
+ abtk = mean(df[df$y=="BTK", "x"], na.rm=TRUE) - mean(df[df$y=="none", "x"],
+                                                      na.rm=TRUE)
+ amek = mean(df[df$y=="MEK", "x"], na.rm=TRUE) - mean(df[df$y=="none", "x"],
+                                                      na.rm=TRUE)
+ amtor= mean(df[df$y=="mTOR", "x"], na.rm=TRUE) - mean(df[df$y=="none", "x"],
+                                                       na.rm=TRUE)
+
+ ef[i,] <-  c(as.numeric(abtk), as.numeric(amek), as.numeric(amtor)) 
+ 
+ mtext( paste(    "pBTK=", summary(fit)$coefficients[ 2, "Pr(>|t|)"], 
+                "\npMEK=", summary(fit)$coefficients[ 3, "Pr(>|t|)"], 
+               "\npMTOR=", summary(fit)$coefficients[ 4, "Pr(>|t|)"], 
+              side=3 ))
+}
+```
+
+As a next step, we summarize the above comparisons in one plot.
+```{r CYTOKINES-summary, fig.path=plotDir, fig.width=4.5, fig.height=3.5, dev = c("png", "pdf")}
+#FIG# S11 D
+# log p-values
+plog <- apply(p, 2, function(x){-log(x)} )
+plog_m <- melt(as.matrix(plog))
+ef_m <- melt(as.matrix(ef))
+
+# introduce effect direction
+plog_m$value <- ifelse(ef_m$value>0, plog_m$value, -plog_m$value)
+
+rownames(plog_m) <- 1:nrow(plog_m)
+
+# fdr
+fdrmin = min( p.adjust(p$mTOR, "fdr") )
+
+### plot ####
+colnames(plog_m) <- c("cytokine", "group", "p")
+
+lev = names(sort(tapply(plog_m$p, plog_m$cytokine, function(p) min(p))))
+
+plog_m$cytokine <- factor(plog_m$cytokine, levels=lev)
+
+
+ ggplot(data=plog_m, mapping=aes(x=cytokine, y=p, color=group)) + 
+    scale_colour_manual(values = c(c1, c2, c3)) +
+    geom_point( size=3 ) + 
+       theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.9),
+       panel.grid.minor = element_blank(),
+       panel.grid.major = element_blank(),
+       panel.background = element_blank(),
+       axis.line.x=element_line(),
+       axis.line.y=element_line(),
+       legend.position="none"
+       ) +
+    scale_y_continuous(name="-log(p-value)", breaks=seq(-3,7.5,2),
+                       limits=c(-3,7.5)) +
+    xlab("") +
+    geom_hline(yintercept = 0) +
+    geom_hline(yintercept = -log(0.004588897), color="purple", linetype="dashed") +
+    geom_hline(yintercept = (-log(0.05)), color="grey", linetype="dashed") 
+```
+
+Within the mTOR group it is only IL-10 which have significantly increased expression. The other important cytokines/chemokines were not differentially expressed.
+
+
+```{r, include=!exists(".standalone"), eval=!exists(".standalone")}
+sessionInfo()
+```
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+rm(list=ls())
+```

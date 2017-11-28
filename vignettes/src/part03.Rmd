@@ -1,0 +1,529 @@
+---
+title: "Part 3: Heatmap for Fig.3A"
+output:
+  BiocStyle::html_document
+---
+
+# Global overview of the drug response landscape
+
+```{r setup, message=FALSE, include=!exists(".standalone"), eval=!exists(".standalone")}
+options(error = recover)
+knitr::opts_chunk$set(tidy = FALSE, # cache = TRUE, autodep = TRUE,
+                      message = FALSE, error = FALSE, warning = TRUE)
+
+library("BloodCancerMultiOmics2017")
+library("Biobase")
+library("dplyr")
+library("RColorBrewer")
+library("dendsort")
+library("nat")  # provides nlapply
+library("grid")
+library("magrittr")
+```
+
+```{r echo=FALSE}
+plotDir = ifelse(exists(".standalone"), "", "part03/")
+if(plotDir!="") if(!file.exists(plotDir)) dir.create(plotDir)
+```
+
+
+Load data 
+```{r load}
+data("conctab", "lpdAll", "drugs", "patmeta")
+lpdCLL <- lpdAll[, lpdAll$Diagnosis=="CLL"]
+lpdAll = lpdAll[, lpdAll$Diagnosis!="hMNC"]
+```
+
+## Setup
+
+### Additional functions
+
+```{r}
+someMatch <- function(...) {
+  rv <- match(...)
+  if (all(is.na(rv)))
+    stop(sprintf("`match` failed to match any of the following: %s",
+                 paste(x[is.na(rv)], collapse=", ")))
+  rv  
+}
+```
+
+
+### Preprocess `IGHV gene usage`
+
+Find the largest categories, which we will represent by colours, 
+and merge the others in a group `other`.
+
+```{r geneusage}
+colnames(pData(lpdAll))
+gu    <- pData(lpdAll)$`IGHV Uppsala gene usage`
+tabgu <- sort(table(gu), decreasing = TRUE)
+biggestGroups <- names(tabgu)[1:5]
+gu[ is.na(match(gu, biggestGroups)) & !is.na(gu) ] <- "other"
+pData(lpdAll)$`IGHV gene usage` <- factor(gu, levels = c(biggestGroups, "other"))
+```
+
+### Some drugs that we are particularly interested in
+
+```{r targetedDrugNames}
+stopifnot(is.null(drugs$id))
+drugs$id <- rownames(drugs)
+
+targetedDrugNames <- c("ibrutinib", "idelalisib",  "PRT062607 HCl", 
+   "duvelisib", "spebrutinib", "selumetinib", "MK-2206",  
+   "everolimus", "encorafenib")
+id1 <- safeMatch(targetedDrugNames, drugs$name)
+targetedDrugs <- paste( rep(drugs[id1, "id"], each = 2), 4:5, sep="_" )
+
+chemoDrugNames <- c("fludarabine", "doxorubicine",  "nutlin-3")
+id2 <- safeMatch(chemoDrugNames, drugs$name)
+chemoDrugs <- paste( rep(drugs[id2, "id"], each = 5), 3:5, sep="_" )
+
+tzselDrugNames <- c("ibrutinib", "idelalisib", "duvelisib", "selumetinib", 
+    "AZD7762", "MK-2206", "everolimus", "venetoclax", "thapsigargin", 
+    "AT13387", "YM155", "encorafenib", "tamatinib", "ruxolitinib", 
+    "PF 477736", "fludarabine", "nutlin-3")
+id3 <- safeMatch(tzselDrugNames, drugs$name)
+tzselDrugs <- unlist(lapply(seq(along = tzselDrugNames), function(i)
+  paste(drugs[id3[i], "id"], 
+      if (tzselDrugNames[i] %in% c("fludarabine", "nutlin-3")) 2:3 else 4:5, 
+    sep = "_" )))
+```
+
+### Feature weighting and score for dendrogram reordering
+
+The `weights` are used for weighting the similarity metric used in heatmap clustering. 
+`weights$hclust` affects the clustering of the patients.
+`weights$score` affects the dendrogram reordering of the drugs.
+
+```{r addBCR}
+bcrDrugs <- c("ibrutinib", "idelalisib", "PRT062607 HCl", "spebrutinib")
+everolID <- drugs$id[ safeMatch("everolimus",  drugs$name)]
+bcrID    <- drugs$id[ safeMatch(bcrDrugs, drugs$name)]
+
+is_BCR  <- 
+  (fData(lpdAll)$id %in% bcrID)    & (fData(lpdAll)$subtype %in% paste(4:5))
+is_mTOR <- 
+  (fData(lpdAll)$id %in% everolID) & (fData(lpdAll)$subtype %in% paste(4:5))
+
+myin <- function(x, y) as.numeric( (x %in% y) & !is.na(x) )
+
+weights1 <- data.frame(
+  hclust = rep(1, nrow(lpdAll)) + 1.75 * is_mTOR, 
+  score  = as.numeric( is_BCR ), 
+  row.names = rownames(lpdAll))
+
+weights2 <- data.frame(
+  row.names = tzselDrugs,
+  hclust = myin(drugs$target_category[id3], "B-cell receptor") * 0.3 + 0.7,
+  score  = rep(1, length(tzselDrugs))) 
+```
+
+Remove drugs that failed quality control: NSC 74859, bortezomib.
+
+```{r badDrugs}
+badDrugs <- c(bortezomib = "D_008", `NSC 74859` = "D_025")
+stopifnot(identical(drugs[ badDrugs, "name"], names(badDrugs)))
+
+candDrugs <- rownames(lpdAll)[  
+  fData(lpdAll)$type=="viab" & !(fData(lpdAll)$id %in% badDrugs) &
+  fData(lpdAll)$subtype %in% paste(2:5)
+]
+```
+
+Threshold parameters: drugs are accepted that for at least `effectNum` samples 
+have a viability effect less than or equal to `effectVal`. On the other hand, the 
+mean viability effect should not be below `viab`.
+
+```{r threshs}
+thresh <- list(effectVal = 0.7, effectNum = 4, viab = 0.6, maxval = 1.1)
+overallMean  <- rowMeans(exprs(lpdAll)[candDrugs, ])
+nthStrongest <- apply(exprs(lpdAll)[candDrugs, ], 1,
+                      function(x) sort(x)[thresh$effectNum])
+```
+```{r hists, fig.width = 8, fig.height = 2.6}
+par(mfrow = c(1, 3))
+hist(overallMean,  breaks = 30, col = "pink")
+abline(v = thresh$viab,      col="blue")
+hist(nthStrongest, breaks = 30, col = "pink")
+abline(v = thresh$effectVal, col="blue")
+plot(overallMean, nthStrongest)
+abline(h = thresh$effectVal, v = thresh$viab, col = "blue")
+```
+
+`seldrugs1` and `d1`: as in the version of 
+Figure 3A we had in the first submission to JCI. `d2`: two concentrations for each drug in `tzselDrugNames`.
+
+```{r seldrugs1}
+seldrugs1 <- candDrugs[ overallMean >= thresh$viab &
+                        nthStrongest <= thresh$effectVal ] %>%
+            union(targetedDrugs) %>% 
+            union(chemoDrugs)
+
+d1 <- exprs(lpdAll[seldrugs1,, drop = FALSE ]) %>%
+  deckel(lower = 0, upper = thresh$maxval)
+
+d2 <- exprs(lpdAll[tzselDrugs,, drop = FALSE ]) %>%
+  deckel(lower = 0, upper = thresh$maxval)
+```
+
+We are going to scale the data. But was is the best measure of scale (or spread)? Let's explore
+different measures of spread. We'll see that it does not seem to matter too much which one we use. 
+We'll use median centering and scaling by mad.
+
+```{r differentspread, fig.width = 4, fig.height = 4}
+spreads <- sapply(list(mad = mad, `Q95-Q05` = function(x)
+  diff(quantile(x, probs = c(0.05, 0.95)))), function(s) apply(d1, 1, s))
+plot( spreads )
+
+jj <- names(which( spreads[, "mad"] < 0.15 & spreads[, "Q95-Q05"] > 0.7))
+jj
+drugs[ stripConc(jj), "name" ]
+```
+
+```{r transf}
+medianCenter_MadScale <- function(x) {
+  s <- median(x)
+  (x - s) / deckel(mad(x, center = s), lower = 0.05, upper = 0.2)
+}
+
+scaleDrugResp  <- function(x) t(apply(x, 1, medianCenter_MadScale)) 
+
+scd1 <- scaleDrugResp(d1)
+scd2 <- scaleDrugResp(d2)
+```
+
+## Define disease groups
+
+```{r defdisgrp}
+sort(table(lpdAll$Diagnosis), decreasing = TRUE)
+
+diseaseGroups <- list(
+  `CLL` = c("CLL"), 
+  `MCL` = c("MCL"),
+  `HCL` = c("HCL", "HCL-V"),
+  `other B-cell` = c("B-PLL", "MZL", "LPL", "FL"), 
+  `T-cell` = c("T-PLL", "Sezary", "PTCL-NOS"),
+  `myeloid` = c("AML"))
+stopifnot(setequal(unlist(diseaseGroups), unique(lpdAll$Diagnosis)))
+
+fdg <- factor(rep(NA, ncol(lpdAll)), levels = names(diseaseGroups))
+for (i in names(diseaseGroups))
+  fdg[ lpdAll$Diagnosis %in% diseaseGroups[[i]] ] <- i
+lpdAll$`Disease Group` <- fdg
+```
+
+## Code for heatmap 
+
+### Matrix row / column clustering
+
+The helper function `matClust` clusters a matrix `x`, 
+whose columns represent samples and whose rows represent drugs.
+Its arguments control how the columns are clustered:
+
+- `weights`: a `data.frame` with a weight for each row of `x`. The weights are used in the computation of distances 
+  between columns and thus for column sorting. The `data.frame`'s column `hclust` contains the weights 
+  for `hclust(dist())`. The column `score` contains the weights for computing the score used for dendrogram reordering.
+  See `weights1` and `weights2` defined above.
+- `colgroups`: a `factor` by which to first split the columns before clustering
+- `reorderrows`: logical. `FALSE` for previous behaviour (old Fig. 3A), `TRUE` for reordering the row dendrogram, too.
+
+```{r matclust}
+matClust <- function(x, 
+                     rowweights,
+                     colgroups   = factor(rep("all", ncol(x))),
+                     reorderrows = FALSE) {
+ 
+  stopifnot(is.data.frame(rowweights),
+            c("hclust", "score") %in% colnames(rowweights),
+            !is.null(rownames(rowweights)),
+            !is.null(rownames(x)), 
+            all(rownames(x) %in% rownames(rowweights)),
+            is.factor(colgroups), 
+            !any(is.na(colgroups)), 
+            length(colgroups) == ncol(x))
+
+  wgt <- rowweights[ rownames(x), ]
+  
+  columnsClust <- function(xk) {
+    score   <- -svd(xk * wgt[, "score"])$v[, 1]
+    cmns    <- colSums(xk * wgt[, "score"])
+    ## make sure that high score = high sensitivity  
+    if (cor(score, cmns) > 0) score <- (-score)
+    
+    ddraw  <- as.dendrogram(hclust(dist(t(xk * wgt[, "hclust"]), 
+                                        method = "euclidean"), 
+                                   method = "complete"))
+    dd  <- reorder(ddraw, wts = -score, agglo.FUN = mean)
+    ord <- order.dendrogram(dd)
+    list(dd = dd, ord = ord, score = score)
+  }
+
+  sp <- split(seq(along = colgroups), colgroups)
+  cc <- lapply(sp, function(k) columnsClust(x[, k, drop=FALSE]))
+  cidx <- unlist(lapply(seq(along = cc), function (i)
+    sp[[i]][ cc[[i]]$ord ]))
+  csc  <- unlist(lapply(seq(along = cc), function (i)
+    cc[[i]]$score[ cc[[i]]$ord ]))
+
+  rddraw <- as.dendrogram(hclust(dist(x, method = "euclidean"),
+                                   method = "complete"))
+  ridx  <- if (reorderrows) {
+    ww <- (colgroups == "CLL")
+    stopifnot(!any(is.na(ww)), any(ww))
+    rowscore <- svd(t(x) * ww)$v[, 1]
+    dd <- reorder(rddraw, wts = rowscore, agglo.FUN = mean)
+    order.dendrogram(dd)
+  } else {
+    rev(order.dendrogram(dendsort(rddraw)))
+  }
+
+  res <- x[ridx, cidx]
+  
+  stopifnot(identical(dim(res), dim(x)))
+  attr(res, "colgap") <- cumsum(sapply(cc, function(x) length(x$score)))
+  res
+}
+```
+
+### Prepare sample annotations 
+I.e. the right hand side color bar. `IGHV Uppsala U/M` is implied by 
+`IGHV Uppsala % SHM` (see sensi2.Rmd).
+`cut(..., right=FALSE)` will use intervals that are closed on the left 
+and open on the right.
+
+```{r}
+translation = list(IGHV=c(U=0, M=1),
+                   Methylation_Cluster=c(`LP-CLL`=0, `IP-CLL`=1, `HP-CLL`=2))
+```
+
+```{r annosamp}
+make_pd <- function(cn, ...) {
+  df <- function(...) data.frame(..., check.names = FALSE)
+  
+  x <- lpdAll[, cn]
+  pd <- df(
+    t(exprs(x)[    c("del17p13", "TP53", "trisomy12"), , drop = FALSE]) %>% 
+      `colnames<-`(c("del 17p13", "TP53", "trisomy 12")))
+  
+  # pd <- df(pd,
+  #    t(exprs(x)[  c("SF3B1", "del11q22.3", "del13q14_any"),, drop = FALSE]) %>% 
+  #    `colnames<-`(c("SF3B1", "del11q22.3", "del13q14"))) 
+  
+  pd <- df(pd,
+      cbind(as.integer(exprs(x)["KRAS",] | exprs(x)["NRAS",])) %>% 
+      `colnames<-`("KRAS | NRAS")) 
+  
+  pd <- df(pd,
+    # IGHV = exprs(x)["IGHV Uppsala U/M", ],
+    `IGHV (%)` = cut(x[["IGHV Uppsala % SHM"]],
+                     breaks = c(0, seq(92, 100, by = 2), Inf), right = FALSE),
+    `Meth. Cluster` = names(translation$Methylation_Cluster)[
+          someMatch(paste(exprs(x)["Methylation_Cluster", ]),
+                    translation$Methylation_Cluster)],
+    `Gene usage` = x$`IGHV gene usage`)
+  
+  if(length(unique(x$Diagnosis)) > 1)  
+    pd <- df(pd, Diagnosis = x$Diagnosis)
+  
+  pd <- df(pd, 
+    pretreated  = ifelse(patmeta[colnames(x),"IC50beforeTreatment"],"no","yes"), 
+    alive       = ifelse(patmeta[colnames(x),"died"]>0, "no", "yes"),
+    sex         = factor(x$Gender))
+  
+  rownames(pd) <- colnames(exprs(x))
+  
+  for (i in setdiff(colnames(pd), "BCR score")) {
+    if (!is.factor(pd[[i]]))
+      pd[[i]] <- factor(pd[[i]])
+    if (any(is.na(pd[[i]]))) {
+      levels(pd[[i]]) <- c(levels(pd[[i]]), "n.d.")
+      pd[[i]][ is.na(pd[[i]]) ] <- "n.d."   
+    }
+  }
+  
+  pd
+}
+```
+
+### Define the annotation colors
+
+```{r annokey}
+gucol <- rev(brewer.pal(nlevels(lpdAll$`IGHV gene usage`), "Set3")) %>% 
+             `names<-`(sort(levels(lpdAll$`IGHV gene usage`)))
+gucol["IGHV3-21"] <- "#E41A1C"
+
+make_ann_colors <- function(pd) {
+  bw <- c(`TRUE` = "darkblue", `FALSE` = "#ffffff")
+  res <- list(
+  Btk = bw, Syk = bw, PI3K = bw, MEK = bw)
+  
+  if ("exptbatch" %in% colnames(pd))
+    res$exptbatch <- brewer.pal(nlevels(pd$exptbatch), "Set2") %>%
+    `names<-`(levels(pd$exptbatch))
+  
+  if ("IGHV (%)" %in% colnames(pd))
+    res$`IGHV (%)` <- 
+       c(rev(colorRampPalette(
+         brewer.pal(9, "Blues"))(nlevels(pd$`IGHV (%)`)-1)), "white") %>% 
+                        `names<-`(levels(pd$`IGHV (%)`))
+  
+  if ("CD38" %in% colnames(pd))
+    res$CD38 <- colorRampPalette(
+      c("blue", "yellow"))(nlevels(pd$CD38)) %>% `names<-`(levels(pd$CD38))
+  
+  if("Gene usage" %in% colnames(pd)) 
+    res$`Gene usage` <- gucol 
+
+  if("Meth. Cluster" %in% colnames(pd)) 
+    res$`Meth. Cluster` <- brewer.pal(9, "Blues")[c(1, 5, 9)] %>% 
+        `names<-`(names(translation$Methylation_Cluster))
+  
+  res <- c(res, BloodCancerMultiOmics2017:::sampleColors)   # from addons.R  
+  
+  if("Diagnosis" %in% colnames(pd)) 
+    res$Diagnosis <- BloodCancerMultiOmics2017:::colDiagS[
+      names(BloodCancerMultiOmics2017:::colDiagS) %in% levels(pd$Diagnosis) ] %>% 
+         (function(x) x[order(names(x))])
+  
+  for(i in names(res)) {
+    whnd <- which(names(res[[i]]) == "n.d.")
+    if(length(whnd)==1)
+      res[[i]][whnd] <- "#e0e0e0" else 
+        res[[i]] <- c(res[[i]], `n.d.` = "#e0e0e0")
+    stopifnot(all(pd[[i]] %in% names(res[[i]])))
+  }
+  
+  res
+}
+```
+
+### Heatmap drawing function
+
+```{r dm}
+theatmap <- function(x, cellwidth = 7, cellheight = 11) {
+  
+  stopifnot(is.matrix(x))
+  patDat <- make_pd(colnames(x))
+  
+  bpp <- brewer.pal(9, "Set1")
+  breaks <- 2.3 * c(seq(-1, 1, length.out = 101)) %>% `names<-`(
+      colorRampPalette(c(rev(brewer.pal(7, "YlOrRd")), 
+                         "white", "white", "white", 
+                         brewer.pal(7, "Blues")))(101))
+
+  if (!is.null(attr(x, "colgap")))
+    stopifnot(last(attr(x, "colgap")) == ncol(x))
+
+  pheatmapwh(deckel(x, lower = first(breaks), upper = last(breaks)), 
+         cluster_rows = FALSE,  
+         cluster_cols = FALSE,
+         gaps_col = attr(x, "colgap"),
+         gaps_row = attr(x, "rowgap"),
+         scale = "none",
+         annotation_col = patDat,
+         annotation_colors = make_ann_colors(patDat),
+         color = names(breaks),
+         breaks = breaks, 
+         show_rownames = TRUE, 
+         show_colnames = !TRUE, 
+         cellwidth = cellwidth, cellheight = cellheight, 
+         fontsize = 10, fontsize_row = 11, fontsize_col = 8,
+         annotation_legend = TRUE, drop_levels = TRUE)
+  }
+```
+
+## Draw the heatmaps
+
+Things we see in the plot:
+
+- separation of U-CLL and M-CLL within CLL
+- BCR-targeting drugs a cluster at the top
+- everolimus stands out in M-CLL with a separate sensitivity pattern
+- encorafenib clusters together and pops out in HCL
+
+clscd1/2: **cl**ustered and **sc**aled **d**rug **mat**rix
+
+```{r doheatmaps}
+clscd1 <- matClust(scd1, rowweights = weights1, 
+                  colgroups = lpdAll$`Disease Group`)
+clscd2 <- matClust(scd2, rowweights = weights2, 
+                  colgroups = lpdAll$`Disease Group`, reorderrows = TRUE)
+```
+
+### Identify places where gaps between the rows should be
+
+```{r gapsrow}
+setGapPositions <- function(x, gapAt) {
+  rg <- if (missing(gapAt)) c(0) else {
+    s <- strsplit(gapAt, split = "--")
+    stopifnot(all(listLen(s) == 2L))
+    s <- strsplit(unlist(s), split = ":")
+    spname <- drugs[safeMatch(sapply(s, `[`, 1), drugs$name), "id"]
+    spconc <- as.numeric(sapply(s, `[`, 2))
+    spi <- mapply(function(d, cc) {
+      i <- which(cc == conctab[d, ])
+      stopifnot(length(i) == 1)
+      i
+     }, spname, spconc)
+    spdrug <- paste(spname, spi, sep = "_")
+    mt <- safeMatch(spdrug, rownames(x))
+    igp <- seq(1, length(mt), by = 2L)
+    stopifnot(all( mt[igp] - mt[igp + 1] == 1))
+    #stopifnot(all( mt[igp] - mt[igp + 1] == 1))
+    c(mt[igp + 1], 0)
+  }
+  attr(x, "rowgap") <- rg
+  x
+}
+
+clscd1 %<>% setGapPositions(gapAt = c(
+  "PF 477736:10--idelalisib:10",
+  "spebrutinib:2.5--PF 477736:2.5",
+  "PRT062607 HCl:10--selumetinib:2.5",
+  "selumetinib:10--MK-2206:2.5",
+  "MK-2206:0.156--tipifarnib:10",
+  "AT13387:0.039--encorafenib:10",
+  "encorafenib:2.5--SD07:1.111",
+  "doxorubicine:0.016--encorafenib:0.625",
+  "encorafenib:0.156--rotenone:2.5",
+  "SCH 900776:0.625--everolimus:0.625",
+  "everolimus:10--afatinib:1.667",
+  "arsenic trioxide:1--thapsigargin:5",
+  "thapsigargin:0.313--fludarabine:0.156"
+))
+
+clscd2 %<>% setGapPositions(gapAt = c(
+  "AT13387:0.039--everolimus:0.156",
+  "everolimus:0.625--nutlin-3:10", 
+  "fludarabine:10--thapsigargin:0.078",
+  "thapsigargin:0.313--encorafenib:0.625", 
+  "encorafenib:0.156--ruxolitinib:0.156"
+))
+```
+
+```{r Fig3AheatmapV1, dev = c("png", "pdf"), fig.path = plotDir, fig.height = 8.0 + nrow(clscd1) * 0.12, fig.width = 31, fig.wide = TRUE}
+#FIG# S8
+rownames(clscd1) <- with(fData(lpdAll)[ rownames(clscd1),, drop = FALSE], 
+  paste0(drugs[id, "name"], " ", conctab[cbind(id, paste0("c", subtype))], "uM")) 
+rownames(clscd1)
+theatmap(clscd1)
+```
+
+```{r Fig3AheatmapV2, dev = c("png", "pdf"), fig.path = plotDir, fig.height = 8.0 + nrow(clscd2) * 0.12, fig.width = 31, fig.wide = TRUE}
+#FIG# 3A
+rownames(clscd2) <- with(fData(lpdAll)[ rownames(clscd2),, drop = FALSE], 
+  paste0(drugs[id, "name"], " ", conctab[cbind(id, paste0("c", subtype))], "uM")) 
+
+rownames(clscd2)
+theatmap(clscd2)
+```
+
+
+```{r, include=!exists(".standalone"), eval=!exists(".standalone")}
+devtools::session_info()
+```
+
+```{r, message=FALSE, warning=FALSE, include=FALSE, eval=exists(".standalone")}
+rm(list=ls())
+```

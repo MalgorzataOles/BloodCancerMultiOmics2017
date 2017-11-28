@@ -1,0 +1,57 @@
+---
+title: "Part 16"
+output:
+  BiocStyle::html_document
+---
+
+```{r, message=FALSE, include=!exists(".standalone"), eval=!exists(".standalone")}
+library("BloodCancerMultiOmics2017")
+library("ggplot2")
+library("tidyverse")
+library("gridExtra")
+```
+
+```{r echo=FALSE}
+plotDir = ifelse(exists(".standalone"), "", "part16/")
+if(plotDir!="") if(!file.exists(plotDir)) dir.create(plotDir)
+```
+
+
+# Response to cytokines in CLL
+
+In order to find out whether the cytokines have pro-survival effect on patient cells the drug sreen was performed.
+`r length(unique(cytokineViab$Patient))` patient samples were exposed to 6 different cytokines. The viability of the treated cells were normalized by untreated controls.
+
+Load the drug response dataset.
+```{r}
+data("cytokineViab")
+```
+
+Plot the drug response curves.
+```{r cytokinesC0, fig.width=8, fig.height=6, warning=FALSE, fig.path=plotDir, dev=c("png", "pdf")}
+cond <- c("IL-2", "IL-4", "IL-10", "IL-21", "LPS", "IgM")
+
+for (i in cond){  
+  plot = ggplot(
+    filter(cytokineViab, Duplicate%in%c("1"), Stimulation==i, Timepoint=="48h"),
+    aes(x=as.factor(Cytokine_Concentration2), y=Normalized_DMSO, colour=mtor,
+        group=interaction(Patient))) +
+    ylab("viability") + xlab("c(stimulation)") + ylim(c(0.8, 1.4)) +
+    geom_line() + geom_point() + ggtitle(i) + theme_bw() + guides(color="none")
+  
+    assign(paste0("p",i), plot)
+}
+
+grid.arrange(`pIL-2`,`pIL-10`,`pIL-4`,`pIL-21`,pLPS, pIgM, nrow=2)
+```
+
+IL-10 had a pro-survival effect on the majority of samples, but not on those in the mTOR group.
+IL-4 and IL-21 had pro-survival effects on most samples, including the mTOR group.
+
+```{r, include=!exists(".standalone"), eval=!exists(".standalone")}
+sessionInfo()
+```
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+rm(list=ls())
+```

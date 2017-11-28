@@ -1,0 +1,135 @@
+---
+title: "Part 15"
+output:
+  BiocStyle::html_document
+---
+
+```{r, message=FALSE, include=!exists(".standalone"), eval=!exists(".standalone")}
+library("BloodCancerMultiOmics2017")
+library("Biobase")
+library("ggbeeswarm")
+library("ggplot2")
+library("gridExtra")
+library("dplyr")
+```
+
+```{r echo=FALSE}
+plotDir = ifelse(exists(".standalone"), "", "part15/")
+if(plotDir!="") if(!file.exists(plotDir)) dir.create(plotDir)
+```
+
+
+# Association between HSP90 inhibitor response and IGHV status
+
+We  investigated  additional  HSP90  inhibitors  (ganetespib,  onalespib)  in  120  patient  samples  from  the  original cohort (CLL), for whom IGHV status was available.
+
+Load the additional drug response dataset.
+```{r}
+data(list= c("validateExp","lpdAll"))
+```
+
+Preparing table for association test and plotting.
+```{r}
+plotTab <- filter(validateExp, Drug %in% c("Ganetespib", "Onalespib")) %>%
+  mutate(IGHV = exprs(lpdAll)["IGHV Uppsala U/M", patientID]) %>%
+  filter(!is.na(IGHV)) %>%
+  mutate(IGHV = as.factor(ifelse(IGHV == 1, "M","U")),
+         Concentration = as.factor(Concentration))
+```
+
+Association test using Student's t-test.
+```{r}
+pTab <- group_by(plotTab, Drug, Concentration) %>%
+  do(data.frame(p = t.test(viab ~ IGHV, .)$p.value)) %>%
+  mutate(p = format(p, digits =2, scientific = TRUE))
+```
+
+Bee swarm plot.
+```{r HSP90confirm, fig.width=14, fig.height=5, warning=FALSE, fig.path=plotDir, dev=c("png", "pdf")}
+pList <- group_by(plotTab, Drug) %>% 
+  do(plots = ggplot(., aes(x=Concentration, y = viab)) + 
+       stat_boxplot(geom = "errorbar", width = 0.3,
+                    position = position_dodge(width=0.6), 
+                    aes(dodge = IGHV)) +
+       geom_boxplot(outlier.shape = NA, position = position_dodge(width=0.6), 
+                    col="black", width=0.5, aes(dodge = IGHV)) + 
+       geom_beeswarm(size=1,dodge.width=0.6, aes(col=IGHV)) +
+       theme_classic() +
+       scale_y_continuous(expand = c(0, 0),breaks=seq(0,1.2,0.20)) +
+       coord_cartesian(ylim = c(0,1.30)) +
+       xlab("Concentration (µM)") + ylab("Viability") + 
+       ggtitle(unique(.$Drug)) +
+       geom_text(data=filter(pTab, Drug == unique(.$Drug)), y = 1.25, 
+                 aes(x=Concentration, label=sprintf("p=%s",p)),
+                 size = 4.5) + 
+      theme(axis.line.x = element_blank(),
+            axis.ticks.x = element_blank(),
+             axis.text  = element_text(size=15),
+            axis.title = element_text(size =15),
+             legend.text = element_text(size=13),
+            legend.title = element_text(size=15),
+             plot.title = element_text(face="bold", hjust=0.5, size=17),
+             plot.margin = unit(c(0.5,0.5,0.5,0.5), "cm"))) 
+grid.arrange(grobs = pList$plots, ncol =2)
+```
+The HSP90 inhibitors had higher activity in U-CLL, consistent  with the result for AT13387. These data suggest that the finding of BCR (IGHV mutation) specific effects  appears to be a compound class effect and further solidifies the results. 
+
+# Association between MEK/ERK inhibitor response and trisomy12
+
+To  further  investigate  the  association  of  trisomy  12  and  MEK  dependence,  we  investigated  additional  MEK  and  ERK  inhibitors  (cobimetinib,  SCH772984  and  trametinib)  in  119  patients  from  the  original  cohort,  for  whom  trisomy  12  status  was  available. 
+
+Preparing table for association test and plotting.
+```{r}
+plotTab <- filter(validateExp, Drug %in%
+                    c("Cobimetinib","SCH772984","Trametinib")) %>%
+  mutate(Trisomy12 = exprs(lpdAll)["trisomy12", patientID]) %>%
+  filter(!is.na(Trisomy12)) %>%
+  mutate(Trisomy12 = as.factor(ifelse(Trisomy12 == 1, "present","absent")),
+         Concentration = as.factor(Concentration))
+```
+
+Association test using Student's t-test.
+```{r}
+pTab <- group_by(plotTab, Drug, Concentration) %>% 
+  do(data.frame(p = t.test(viab ~ Trisomy12, .)$p.value)) %>%
+  mutate(p = format(p, digits =2, scientific = FALSE))
+```
+
+Bee swarm plot.
+```{r tris12confirm, fig.width=8, fig.height=12, warning=FALSE, fig.path=plotDir, dev=c("png", "pdf")}
+pList <- group_by(plotTab, Drug) %>% 
+  do(plots = ggplot(., aes(x=Concentration, y = viab)) + 
+       stat_boxplot(geom = "errorbar", width = 0.3,
+                    position = position_dodge(width=0.6), 
+                    aes(dodge = Trisomy12)) +
+       geom_boxplot(outlier.shape = NA, position = position_dodge(width=0.6), 
+                    col="black", width=0.5, aes(dodge = Trisomy12)) + 
+       geom_beeswarm(size=1,dodge.width=0.6, aes(col=Trisomy12)) +
+       theme_classic() +
+       scale_y_continuous(expand = c(0, 0),breaks=seq(0,1.2,0.2)) +
+       coord_cartesian(ylim = c(0,1.3)) +
+       xlab("Concentration (µM)") + ylab("Viability") + 
+       ggtitle(unique(.$Drug)) +
+       geom_text(data=filter(pTab, Drug == unique(.$Drug)), y = 1.25, 
+                 aes(x=Concentration, label=sprintf("p=%s",p)), size = 5) + 
+       theme(axis.line.x = element_blank(),
+             axis.ticks.x = element_blank(),
+             axis.text  = element_text(size=15),
+             axis.title = element_text(size =15),
+             legend.text = element_text(size=13),
+             legend.title = element_text(size=15),
+             plot.title = element_text(face="bold", hjust=0.5, size=17),
+             plot.margin = unit(c(0.5,0,0.5,0), "cm"))) 
+
+grid.arrange(grobs = pList$plots, ncol =1)
+```
+Consistent  with  the  data  from  the  screen,  samples  with  trisomy  12  showed  higher  sensitivity  to  MEK/ERK  inhibitors.
+
+
+```{r, include=!exists(".standalone"), eval=!exists(".standalone")}
+sessionInfo()
+```
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+rm(list=ls())
+```

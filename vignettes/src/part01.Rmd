@@ -1,0 +1,476 @@
+---
+title: "Part 1"
+output:
+  BiocStyle::html_document
+---
+
+```{r, message=FALSE, include=!exists(".standalone"), eval=!exists(".standalone")}
+library("BloodCancerMultiOmics2017")
+library("Biobase")
+library("ggplot2")
+library("gtable")
+library("grid")
+library("tidyverse")
+library("gridExtra")
+```
+
+```{r echo=FALSE}
+plotDir = ifelse(exists(".standalone"), "", "part01/")
+if(plotDir!="") if(!file.exists(plotDir)) dir.create(plotDir)
+```
+
+```{r}
+options(stringsAsFactors=FALSE)
+```
+
+# Characteristics of drugs and patients in the study
+
+Loading the data.
+```{r}
+data("drpar", "drugs", "patmeta", "mutCOM")
+```
+
+Creating vectors of patient samples and drugs within the drug screen. Within drugs, we omit the statistics for one drug combination, due to lack of possibility to assign its targets.
+```{r}
+# PATIENTS
+patM = colnames(drpar)
+
+# DRUGS
+drM = rownames(drpar)
+drM = drM[!drM %in% "D_CHK"] # remove combintation of 2 drugs: D_CHK
+```
+
+General plotting parameters.
+```{r}
+bwScale = c("0"="white","1"="black","N.A."="grey90")
+lfsize = 16 # legend font size
+```
+
+## Drugs
+
+Categorize the drugs.
+```{r}
+drugs$target_category = as.character(drugs$target_category)
+drugs$group = NA
+drugs$group[which(drugs$approved_042016==1)] = "FDA approved"
+drugs$group[which(drugs$devel_042016==1)] = "clinical development/\ntool compound"
+```
+
+Show the characteristics.
+```{r echo=FALSE}
+res = table(drugs[,c("target_category","group")])
+knitr::kable(res[order(res[,1], decreasing=TRUE),])
+```
+
+```{r echo=FALSE}
+goM = BloodCancerMultiOmics2017:::plotPathways(dat=drugs[drM,])
+```
+
+```{r dr_desc_M, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=goM[["figure"]][["width"]], fig.height=goM[["figure"]][["height"]]}
+#FIG# 1C
+grid.draw(goM[["figure"]][["plot"]])
+```
+
+```{r, echo=FALSE}
+knitr::knit_hooks$set(crop=NULL)
+```
+
+```{r dr_desc_M_leg, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=goM[["legend"]][["width"]], fig.height=goM[["legend"]][["height"]], out.height=120, out.width=240}
+#FIG# 1C
+grid.draw(goM[["legend"]][["plot"]])
+```
+
+```{r, echo=FALSE}
+knitr::knit_hooks$set(crop=knitr:::hook_pdfcrop)
+```
+
+## Patient samples
+
+Show number of samples stratified by the diagnosis.
+```{r echo=FALSE}
+knitr::kable(data.frame(sort(table(patmeta[patM, "Diagnosis"]), decreasing=TRUE)))
+```
+
+```{r echo=FALSE}
+goM = BloodCancerMultiOmics2017:::plotPatientStat(pats=patM, gap=c(30,160))
+```
+
+```{r pt_desc_M, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=goM[["figure"]][["width"]], fig.height=goM[["figure"]][["height"]]}
+#FIG# 1B
+grid.draw(goM[["figure"]][["plot"]])
+```
+
+```{r, echo=FALSE}
+knitr::knit_hooks$set(crop=NULL)
+```
+
+```{r pt_desc_M_leg, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=goM[["legend"]][["width"]], fig.height=goM[["legend"]][["height"]], out.height=120, out.width=240}
+#FIG# 1B
+grid.draw(goM[["legend"]][["plot"]])
+```
+
+```{r, echo=FALSE}
+knitr::knit_hooks$set(crop=knitr:::hook_pdfcrop)
+```
+
+Within CLL group, we now show mutations with occurred in at least 4 samples.
+```{r}
+# select CLL samples
+patM = patM[patmeta[patM,"Diagnosis"]=="CLL"]
+
+ighv = factor(setNames(patmeta[patM,"IGHV"], nm=patM), levels=c("U","M"))
+
+mut1 = c("del17p13", "del11q22.3", "trisomy12", "del13q14_any")
+mut2 = c("TP53", "ATM", "SF3B1", "NOTCH1", "MYD88")
+
+mc = assayData(mutCOM)$binary[patM,]
+
+## SELECTION OF MUTATIONS
+# # include mutations with at least incidence of 4
+mut2plot = names(which(sort(colSums(mc, na.rm=TRUE), decreasing=TRUE)>3))
+
+# remove chromothrypsis
+mut2plot = mut2plot[-grep("Chromothripsis", mut2plot)]
+# divide mutations into gene mut and cnv
+mut2plotSV = mut2plot[grep("[[:lower:]]", mut2plot)]
+mut2plotSP = mut2plot[grep("[[:upper:]]", mut2plot)]
+
+# remove some other things (it is quite manual thing, so be careful)
+# IF YOU WANT TO REMOVE SOME MORE MUTATIONS JUST ADD THE LINES HERE!
+mut2plotSV = mut2plotSV[-grep("del13q14_mono", mut2plotSV)]
+mut2plotSV = mut2plotSV[-grep("del13q14_bi", mut2plotSV)]
+mut2plotSV = mut2plotSV[-grep("del14q24.3", mut2plotSV)]
+
+# rearrange the top ones to match the order in mut1 and mut2
+mut2plotSV = c(mut1, mut2plotSV[!mut2plotSV %in% mut1])
+mut2plotSP = c(mut2, mut2plotSP[!mut2plotSP %in% mut2])
+
+factors = data.frame(assayData(mutCOM)$binary[patM, c(mut2plotSV, mut2plotSP)],
+                     check.names=FALSE)
+# change del13q14_any to del13q14
+colnames(factors)[which(colnames(factors)=="del13q14_any")] = "del13q14"
+mut2plotSV = gsub("del13q14_any", "del13q14", mut2plotSV)
+# change it to factors
+for(i in 1:ncol(factors)) {
+  factors[,i] = factor(factors[,i], levels=c(1,0))
+}
+
+ord = order(factors[,1], factors[,2], factors[,3], factors[,4], factors[,5],
+            factors[,6], factors[,7], factors[,8], factors[,9], factors[,10],
+            factors[,11], factors[,12], factors[,13], factors[,14],
+            factors[,15], factors[,16], factors[,17], factors[,18],
+            factors[,19], factors[,20], factors[,21], factors[,22],
+            factors[,23], factors[,24], factors[,25], factors[,26],
+            factors[,27], factors[,28], factors[,29], factors[,30],
+            factors[,31], factors[,32])
+
+factorsord = factors[ord,]
+patM = patM[ord]
+
+(c(mut2plotSV, mut2plotSP))
+```
+
+Let's now look deeper and for each mutation. We ask how many samples have (1) or don't have (0) a particular mutation.
+```{r }
+plotDF = meltWholeDF(factorsord)
+plotDF$Mut =
+  ifelse(sapply(plotDF$X,
+                function(x) grep(x, list(mut2plotSV, mut2plotSP)))==1,"SV","SP")
+plotDF$Status = "N.A."
+plotDF$Status[plotDF$Measure==1 & plotDF$Mut=="SV"] = "1a"
+plotDF$Status[plotDF$Measure==1 & plotDF$Mut=="SP"] = "1b"
+plotDF$Status[plotDF$Measure==0] = "0"
+plotDF$Status = factor(plotDF$Status, levels=c("1a","1b","0","N.A."))
+
+plotDF$Y = factor(plotDF$Y, levels=patM)
+plotDF$X = factor(plotDF$X, levels=rev(colnames(factorsord)))
+
+mutPL = ggplotGrob(
+  ggplot(data=plotDF, aes(x=Y, y=X, fill=Status)) + geom_tile() +
+    scale_fill_manual(
+      values=c("0"="white","1a"="forestgreen","1b"="navy","N.A."="grey90"),
+      name="Mutation", labels=c("CNV","Gene mutation","WT","NA")) +
+    ylab("") + xlab("") +
+    geom_vline(xintercept=seq(0.5,length(patM)+1,5), colour="grey60") +
+    geom_hline(yintercept=seq(0.5,ncol(factorsord)+1,1), colour="grey60") +
+    scale_y_discrete(expand=c(0,0)) + scale_x_discrete(expand=c(0,0)) +
+    theme(axis.ticks=element_blank(), axis.text.x=element_blank(),
+          axis.text.y=element_text(
+            size=60, face=ifelse(levels(plotDF$X) %in% mut2plotSV,
+                                 "plain","italic")),
+          axis.text=element_text(margin=unit(0.5,"cm"), colour="black"),
+          legend.key = element_rect(colour = "black"),
+          legend.text=element_text(size=lfsize),
+          legend.title=element_text(size=lfsize)))
+
+res = table(plotDF[,c("X","Measure")])
+knitr::kable(res[order(res[,2], decreasing=TRUE),])
+```
+
+In the last part, we characterize samples according to metadata categories.
+
+**Age**
+
+```{r}
+ageDF = data.frame(Factor="Age",
+                   PatientID=factor(patM, levels=patM),
+                   Value=patmeta[patM,c("Age4Main")])
+
+agePL = ggplotGrob(
+  ggplot(ageDF, aes(x=PatientID, y=Factor, fill=Value)) + geom_tile() +
+    scale_fill_gradient(low = "gold", high = "#3D1F00", na.value="grey92",
+                        name="Age", breaks=c(40,60,80)) +
+    theme(axis.ticks=element_blank(),
+          axis.text=element_text(size=60, colour="black",
+                                 margin=unit(0.5,"cm")),
+          legend.text=element_text(size=lfsize),
+          legend.title=element_text(size=lfsize)))
+  
+hist(ageDF$Value, col="slategrey", xlab="Age", main="")
+```
+
+**Sex**
+
+```{r}
+sexDF = data.frame(Factor="Sex", PatientID=factor(patM, levels=patM),
+                   Value=patmeta[patM, "Gender"])
+
+sexPL = ggplotGrob(
+  ggplot(sexDF, aes(x=PatientID, y=Factor, fill=Value)) + geom_tile() +
+    scale_fill_manual(values=c("f"="maroon","m"="royalblue4","N.A."="grey90"),
+                      name="Sex", labels=c("Female","Male","NA")) +
+    theme(axis.ticks=element_blank(),
+          axis.text=element_text(size=60, colour="black",
+                                 margin=unit(0.5,"cm")),
+          legend.key = element_rect(colour = "black"),
+          legend.text=element_text(size=lfsize),
+          legend.title=element_text(size=lfsize)))
+
+table(sexDF$Value)
+```
+
+**Treatment**
+
+Number of samples treated (1) or not treated (0) before sampling.
+```{r}
+treatDF = data.frame(Factor="Treated", PatientID=factor(patM, levels=patM),
+                     Value=ifelse(patmeta[patM, "IC50beforeTreatment"], 0, 1))
+treatDF$Value[is.na(treatDF$Value)] = "N.A."
+treatDF$Value = factor(treatDF$Value, levels=c("0","1","N.A."))
+
+treatPL = ggplotGrob(
+  ggplot(treatDF, aes(x=PatientID, y=Factor, fill=Value)) +geom_tile() +
+    scale_fill_manual(values=bwScale, name="Treated",
+                      labels=c("0"="No","1"="Yes","N.A."="NA")) +
+    theme(axis.ticks=element_blank(),
+          axis.text=element_text(size=60, colour="black",
+                                 margin=unit(0.5,"cm")),
+          legend.key = element_rect(colour = "black"),
+          legend.text=element_text(size=lfsize),
+          legend.title=element_text(size=lfsize)))
+
+table(treatDF$Value)
+```
+
+**IGHV status**
+
+Number of samples with (1) and without (0) the IGHV mutation.
+```{r}
+ighvDF = data.frame(Factor="IGHV", PatientID=factor(patM, levels=patM),
+                    Value=patmeta[patM, "IGHV"])
+ighvDF$Value = ifelse(ighvDF$Value=="M", 1, 0)
+ighvDF$Value[is.na(ighvDF$Value)] = "N.A."
+ighvDF$Value = factor(ighvDF$Value, levels=c("0","1","N.A."))
+
+ighvPL = ggplotGrob(
+  ggplot(ighvDF, aes(x=PatientID, y=Factor, fill=Value)) + geom_tile() +
+    scale_fill_manual(values=bwScale, name="IGHV",
+                      labels=c("0"="Unmutated","1"="Mutated","N.A."="NA")) +
+    theme(axis.ticks=element_blank(), 
+          axis.text=element_text(size=60, colour="black", margin=unit(0.5,"cm")),
+          legend.key=element_rect(colour = "black"),
+          legend.text=element_text(size=lfsize),
+          legend.title=element_text(size=lfsize)))
+
+table(ighvDF$Value)
+```
+
+[//]: # (Summarize the patient samples characteristics.)
+
+```{r echo=FALSE}
+nX = length(patM)
+nY = ncol(factorsord)
+unY1 = 0.6*1.6
+unY2 = 0.6*1.8
+unX = 0.2
+sp = 0.001
+wdths = c(6, unX*nX, sp)
+hghts = c(sp, unY1,unY1,unY1,unY1, 0.8, sp, sp ,unY2*nY, sp)
+gt = gtable(widths=unit(wdths, "in"), heights=unit(hghts, "in"))
+
+# add the plots
+gt = gtable_add_grob(gt, sexPL$grobs[[whichInGrob(sexPL, "panel")]], 2, 2)
+gt = gtable_add_grob(gt, treatPL$grobs[[whichInGrob(treatPL, "panel")]], 3, 2)
+gt = gtable_add_grob(gt, agePL$grobs[[whichInGrob(agePL, "panel")]], 4, 2)
+gt = gtable_add_grob(gt, ighvPL$grobs[[whichInGrob(ighvPL, "panel")]], 5, 2)
+gt = gtable_add_grob(gt, mutPL$grobs[[whichInGrob(mutPL, "panel")]], 9, 2)
+
+# add x axis
+gt = gtable_add_grob(gt, mutPL$grobs[[whichInGrob(mutPL, "axis-b")]], 10, 2)
+
+# add y axis
+gt = gtable_add_grob(gt, sexPL$grobs[[whichInGrob(sexPL, "axis-l")]], 2, 1)
+gt = gtable_add_grob(gt, treatPL$grobs[[whichInGrob(treatPL, "axis-l")]], 3, 1)
+gt = gtable_add_grob(gt, agePL$grobs[[whichInGrob(agePL, "axis-l")]], 4, 1)
+gt = gtable_add_grob(gt, ighvPL$grobs[[whichInGrob(ighvPL, "axis-l")]], 5, 1)
+gt = gtable_add_grob(gt, mutPL$grobs[[whichInGrob(mutPL, "axis-l")]], 9, 1)
+```
+
+```{r part1, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=sum(wdths), fig.height=sum(hghts)}
+#FIG# 1D
+grid.draw(gt)
+```
+
+```{r charLegend, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=10, fig.height=2}
+#FIG# 1D
+BloodCancerMultiOmics2017:::drawLegends(plobj=list(agePL,sexPL,treatPL,ighvPL,mutPL))
+```
+
+# Data quality control
+
+We performed multiple checks on the data quality. Below we show two examples.
+
+First, we compared the values of ATP luminescence of DMSO controls at the beginning and after 48 h of incubation. Second, we assessed reproducibility of the drug screening platform.
+
+
+## Comparison of ATP luminescence of DMSO controls at timepoint 0 and 48 h
+
+The ATP luminescence of the samples were measured on day 0. We compared this value with the ATP luminescence of negative control wells at 48 h, in order to assess the cell viability change without drug treatment during 48 h culturing.
+
+Loading the data.
+```{r}
+data("lpdAll")
+```
+
+Prepare table for plot.
+```{r}
+plotTab = pData(lpdAll) %>%
+  transmute(x=log10(ATPday0), y=log10(ATP48h), diff=ATP48h/ATPday0) %>%
+  filter(!is.na(x))
+```
+
+Scatter plot to show the the correlation of ATP luminescence between day0 and 48h.
+```{r, fig.width=8, fig.height=7}
+lm_eqn <- function(df){
+    m <- lm(y ~ 1, df, offset = x)
+    ypred <- predict(m, newdata = df)
+    r2 = sum((ypred - df$y)^2)/sum((df$y - mean(df$y)) ^ 2)
+    eq <- substitute(italic(y) == italic(x) + a*","~~italic(r)^2~"="~r2, 
+         list(a = format(coef(m)[1], digits = 2), 
+             r2 = format(r2, digits = 2)))
+    as.character(as.expression(eq))                 
+}
+
+plotTab$ypred <- predict(lm(y~1,plotTab, offset = x), newdata = plotTab)
+sca <- ggplot(plotTab, aes(x= x, y = y)) + geom_point(size=3) + 
+  geom_smooth(data = plotTab, mapping = aes(x=x, y = ypred), method = lm, se = FALSE, formula = y ~ x) + 
+  geom_text(x = 5.2, y = 6.2, label = lm_eqn(plotTab), parse = TRUE, size =8) + 
+  xlab("log10(day0 ATP luminescence)") + ylab("log10(48h ATP luminescence)") +
+  theme_bw() + theme(axis.title = element_text(size = 15, face = "bold"), 
+                     axis.text = element_text(size=15), legend.position = "none") +
+  coord_cartesian(xlim = c(4.6,6.3), ylim = c(4.6,6.3))
+```
+
+Histogram of the difference between day0 and 48h ATP level.
+```{r}
+histo <- ggplot(plotTab, aes(x = diff)) + geom_histogram(col = "red", fill = "red", bins=30, alpha = 0.5) + theme_bw() +
+  theme(axis.title = element_text(size = 15, face = "bold"), axis.text = element_text(size=15), legend.position = "none") +
+  xlab("(48h ATP luminescence) / (day0 ATP luminescence)")
+```
+
+Combine plots together.
+```{r ATPcount_combine, fig.path=plotDir, dev=c("png", "pdf"), fig.width=13, fig.height=6}
+grid.arrange(sca, histo, ncol=2)
+```
+
+
+## Reproducibility of the drug screening platform
+
+Drug screening platform tested three samples twice. Moreover, the measurements were taken in the two time points: 48 h and 72 h after drug treatment. Here we compare the reproducibility of the screening platform by calculating Pearson correlation coefficients for the each pair of replicates. 
+
+Loading the data.
+```{r}
+data("day23rep")
+```
+
+Arranging the data.
+```{r}
+maxXY = 125
+
+plottingDF = do.call(rbind, lapply(c("day2","day3"), function(day) {
+  tmp = merge(
+    meltWholeDF(assayData(day23rep)[[paste0(day,"rep1")]]),
+    meltWholeDF(assayData(day23rep)[[paste0(day,"rep2")]]),
+    by=c("X","Y"))
+  colnames(tmp) = c("PatientID", "DrugID", "ViabX", "ViabY")
+  tmp[,c("ViabX", "ViabY")] = tmp[,c("ViabX", "ViabY")] * 100
+  tmp$Day = ifelse(day=="day2", "48h", "72h")
+  tmp
+}))
+
+plottingDF$Shape =
+  ifelse(plottingDF$ViabX > maxXY | plottingDF$ViabY > maxXY, "B", "A")
+```
+
+Calculate the Pearson correlation coefficient.
+```{r}
+annotation = 
+  do.call(rbind,
+          tapply(1:nrow(plottingDF),
+                 paste(plottingDF$PatientID,
+                       plottingDF$Day, sep="_"),
+                 function(idx) {
+                   data.frame(X=110, Y=10,
+                              Shape="A",
+                              PatientID=plottingDF$PatientID[idx[1]],
+                              Day=plottingDF$Day[idx[1]],
+                              Cor=cor(plottingDF$ViabX[idx],
+                                      plottingDF$ViabY[idx],
+                                      method="pearson"))
+}))
+```
+
+Plot the correlations together with coefficients (in a bottom-right corner).
+```{r pilotRep, fig.path=plotDir, dev=c("png", "pdf"), fig.width=7, fig.height=5}
+#FIG# S31
+ggplot(data=plottingDF, 
+       aes(x=ifelse(ViabX>maxXY,maxXY,ViabX), y=ifelse(ViabY>maxXY,maxXY,ViabY),
+           shape=Shape)) +
+  facet_grid(Day ~ PatientID) + theme_bw() +
+  geom_hline(yintercept=100, linetype="dashed",color="darkgrey") +
+  geom_vline(xintercept=100, linetype="dashed",color="darkgrey") +
+  geom_abline(intercept=0, slope=1, colour="grey") +
+  geom_point(size=1.5, alpha=0.6) +
+  scale_x_continuous(limits=c(0,maxXY), breaks=seq(0,maxXY,25)) +
+  scale_y_continuous(limits=c(0,maxXY), breaks=seq(0,maxXY,25)) +
+  xlab("% viability - replicate 1") + ylab("% viability - replicate 2") +
+  coord_fixed() + expand_limits(x = 0, y = 0) +
+  theme(axis.title.x=element_text(size = rel(1), vjust=-1),
+        axis.title.y=element_text(size = rel(1), vjust=1),
+        strip.background=element_rect(fill="gainsboro")) +
+  guides(shape=FALSE, size=FALSE) +
+  geom_text(data=annotation,
+            aes(x=X, y=Y, label=format(Cor, digits=2), size=1.2),
+            colour="maroon", hjust=0.2)
+```
+
+The reproducibility of the measurements is high (mean `r round(mean(annotation$Cor),2)`).
+
+
+```{r, include=!exists(".standalone"), eval=!exists(".standalone")}
+sessionInfo()
+```
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+rm(list=ls())
+```

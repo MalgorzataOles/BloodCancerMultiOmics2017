@@ -1,0 +1,293 @@
+---
+title: "Summary of data objects in PACE"
+author: "Małgorzata Oleś"
+output: 
+  BiocStyle::html_document:
+    toc_float: true
+vignette: >
+  %\VignetteIndexEntry{Summary of data objects in PACE}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8} 
+---
+
+# Prerequisites
+
+```{r loadlib, message=FALSE}
+library("BloodCancerMultiOmics2017")
+# additional
+library("Biobase")
+library("SummarizedExperiment")
+library("DESeq2")
+
+library("reshape2")
+library("ggplot2")
+library("tidyverse")
+library("BiocStyle")
+```
+
+
+# Introduction
+
+Primary tumor samples from blood cancer patients underwent functional and molecular characterization. `r Biocpkg("BloodCancerMultiOmics2017")` includes the resulting preprocessed data. A quick overview of the available data is provided below. For the details on experimental settings please refer to:
+
+S Dietrich\*, M Oleś\*, J Lu\* et al. *Drug Perturbation Based Stratification of Blood Cancer* (in press)
+
+\* equal contribution
+
+
+# Data overview
+
+Load all of the available data.
+```{r}
+data("conctab", "drpar", "lpdAll", "patmeta", "day23rep", "drugs",
+     "methData", "validateExp", "dds", "exprTreat", "mutCOM",
+     "cytokineViab")
+```
+
+The data sets are objects of different classes (`data.frame`, `ExpressionSet`, `NChannelSet`, `RangedSummarizedExperiment`, `DESeqDataSet`), and include data for either all studied patient samples or only a subset of these. The overview below shortly describes and summarizes the data available. Please note that the presence of a given patient sample ID within the data set doesn't necessarily mean that the data is available for this sample (the slot could be filled with NAs).
+
+Patient samples per data set.
+```{r numberOfSamples}
+samplesPerData = list(
+  drpar = colnames(drpar),
+  lpdAll = colnames(lpdAll),
+  day23rep = colnames(day23rep),
+  methData = colnames(methData),
+  patmeta = rownames(patmeta),
+  validateExp = unique(validateExp$patientID),
+  dds = colData(dds)$PatID,
+  exprTreat = unique(pData(exprTreat)$PatientID),
+  mutCOM = rownames(mutCOM),
+  cytokineViab = unique(cytokineViab$Patient)
+)
+```
+
+List of all samples present in data sets.
+```{r}
+(samples = sort(unique(unlist(samplesPerData))))
+```
+
+Total number of samples.
+```{r}
+length(samples)
+```
+
+A plot summarizing the presence of a given patient sample within each data set.
+```{r sampleOverlap, fig.height=4, fig.width=8, echo=FALSE}
+plotTab = melt(samplesPerData, value.name="PatientID")
+plotTab$L1 = factor(plotTab$L1, levels=c("patmeta",
+                                         "mutCOM",
+                                         "lpdAll",
+                                         "methData",
+                                         "exprTreat",
+                                         "dds",
+                                         "cytokineViab",
+                                         "day23rep",
+                                         "validateExp",
+                                         "drpar"))
+
+# order of the samples in the plot
+tmp = do.call(cbind, lapply(samplesPerData[c("drpar",
+                                             "validateExp",
+                                             "day23rep",
+                                             "dds",
+                                             "exprTreat",
+                                             "methData",
+                                             "cytokineViab")],
+                            function(x) {
+                              samples %in% x
+  }))
+
+rownames(tmp) = samples
+ord = order(tmp[,1], tmp[,2], tmp[,3], tmp[,4], tmp[,5], tmp[,6], tmp[,7],
+            decreasing=TRUE)
+ordSamples = rownames(tmp)[ord]
+plotTab$PatientID = factor(plotTab$PatientID, levels=ordSamples)
+
+ggplot(plotTab, aes(x=PatientID, y=L1)) + geom_tile(fill="lightseagreen") +
+  scale_y_discrete(expand=c(0,0)) +
+  ylab("Data objects") + 
+  xlab("Patient samples") +
+  geom_vline(xintercept=seq(10, length(samples),10), color="grey") +
+  geom_hline(yintercept=seq(0.5, length(levels(plotTab$L1)), 1),
+             color="dimgrey") +
+  theme(panel.grid=element_blank(),
+        text=element_text(size=18),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        panel.background=element_rect(color="gainsboro"))
+```
+
+The classification below stratifies data sets according to different types of experiments performed and included. Please refer to the manual for a more detailed information on the content of these data objects.
+
+
+## Patient metadata
+
+Patient metadata is provided in the `patmeta` object.
+```{r}
+# Number of patients per disease
+sort(table(patmeta$Diagnosis), decreasing=TRUE)
+
+# Number of samples from pretreated patients
+table(!patmeta$IC50beforeTreatment)
+
+# IGHV status of CLL patients
+table(patmeta[patmeta$Diagnosis=="CLL", "IGHV"])
+```
+
+
+## High-throughput drug screen data
+
+The viability measurements from the high-throughput drug screen are included in the `drpar` object. The metadata about the drugs and drug concentrations used can be found in `drugs` and `conctab` objects, respectively.
+
+The `drpar` object includes multiple channels, each of which consists of viability data for a single drug concentration step. Channels `viaraw.1_5` and `viaraw.4_5` contain the mean viability score between multiple concentration steps as indicated at the end of the channel name.
+
+```{r}
+channelNames(drpar)
+
+# show viability data for the first 5 patients and 7 drugs in their lowest conc.
+assayData(drpar)[["viaraw.1"]][1:7,1:5]
+```
+
+Drug metadata.
+```{r}
+# number of drugs
+nrow(drugs)
+
+# type of information included in the object
+colnames(drugs)
+```
+
+Drug concentration steps (c1 - lowest, c5 - highest).
+```{r}
+head(conctab)
+```
+
+The reproducibility of the screening platform was assessed by screening `r unname(ncol(day23rep))` patient samples in two replicates. The viability measurements are available for two time points: 48 h and 72 h after adding the drug. The screen was performed for `r length(unique(fData(day23rep)$DrugID))` drugs in 1-2 different drug concentrations (`r table(table(fData(day23rep)$DrugID))["1"]` in 1 and `r table(table(fData(day23rep)$DrugID))["2"]` in 2 drug concentrations). This data is provided in `day23rep`.
+```{r}
+channelNames(day23rep)
+
+# show viability data for 48 h time point for all patients marked as
+# replicate 1 and 3 first drugs in all their conc.
+drugs2Show = unique(fData(day23rep)$DrugID)[1:3]
+assayData(day23rep)[["day2rep1"]][fData(day23rep)$DrugID %in% drugs2Show,]
+```
+
+The follow-up drug screen, which confirmed the targets and the signaling pathway dependence of the patient samples was performed for `r length(unique(validateExp$patientID))` samples and the following drugs: `r paste(unique(validateExp$Drug), collapse=", ")`.
+
+| Drug name   | Target |
+|-------------|--------|
+| Cobimetinib | MEK    |
+| Trametinib  | MEK    |
+| SCH772984   | ERK1/2 |
+| Ganetespib  | Hsp90  |
+| Onalespib   | Hsp90  |
+
+The data is included in the `validateExp` object.
+```{r}
+head(validateExp)
+```
+
+Moreover, we also performed a small drug screen in order to check the influence of the different cytokines/chemokines on the viability of the samples. These data are included in `cytokineViab` object.
+
+```{r}
+head(cytokineViab)
+```
+
+
+## Gene mutation data
+
+The `mutCOM` object contains information on the presence of gene mutations in the studied patient samples.
+```{r}
+# there is only one channel with the binary type of data for each gene
+channelNames(mutCOM)
+
+# the feature data includes detailed information about mutations in
+# TP53 and BRAF genes, as well as clone size of 
+#del17p13, KRAS, UMODL1, CREBBP, PRPF8, trisomy12 mutations
+colnames(fData(mutCOM))
+```
+
+
+## Gene expression data
+
+RNA-Seq data preprocessed with `r Biocpkg("DESeq2")` is provided in the `dds` object.
+
+```{r}
+# show count data for the first 5 patients and 7 genes
+assay(dds)[1:7,1:5]
+
+# show the above with patient sample ids
+assay(dds)[1:7,1:5] %>% `colnames<-` (colData(dds)$PatID[1:5])
+
+# number of genes and patient samples
+nrow(dds); ncol(dds)
+```
+
+Additionally, `r length(unique(pData(exprTreat)$PatientID))` patient samples underwent gene expression profiling using Illumina microarrays before and 12 h after treatment with `r tmp=unique(pData(exprTreat)$DrugID); length(tmp[!is.na(tmp)])` drugs. These data are included in the `exprTreat` data object.
+```{r}
+# patient samples included in the data set
+(p = unique(pData(exprTreat)$PatientID))
+
+# type of metadata included for each gene
+colnames(fData(exprTreat))
+
+# show expression level for the first patient and 3 first probes
+exprs(exprTreat)[1:3, pData(exprTreat)$PatientID==p[1]]
+```
+
+
+## DNA methylation data
+
+DNA methylation included in `methData` object contains data for `r ncol(methData)` patient samples and 5000 of the most variable CpG sites.
+
+```{r}
+# show the methylation for the first 7 CpGs and the first 5 patient samples
+assay(methData)[1:7,1:5]
+
+# type of metadata included for CpGs
+colnames(rowData(methData))
+
+# number of patient samples screened with the given platform type
+table(colData(methData)$platform)
+```
+
+
+## Other
+
+Object `lpdAll` is a convenient assembly of data contained in the other data objects mentioned earlier in this vignette. For details, please refer to the manual. 
+
+```{r}
+# number of rows in the dataset for each type of data
+table(fData(lpdAll)$type)
+
+# show viability data for drug ibrutinib, idelalisib and dasatinib
+# (in the mean of the two lowest concentration steps) and
+# the first 5 patient samples
+exprs(lpdAll)[which(
+  with(fData(lpdAll),
+       name %in% c("ibrutinib", "idelalisib", "dasatinib") &
+         subtype=="4:5")), 1:5]
+```
+
+
+# Original data
+
+The raw data from the whole exome sequencing, RNA-seq and DNA methylation arrays is stored in the European Genome-Phenome Archive (EGA) under accession number EGAS0000100174.
+
+The proprocesed DNA methylation data, which include complete list of CpG sites (not only the 5000 with the highest variance) can be accessed through Bioconductor ExperimentHub platform.
+
+```{r eval=FALSE}
+library("ExperimentHub")
+
+eh = ExperimentHub()
+obj = ExperimentHub::loadResource(eh, "PACEmeth")
+meth = obj[[1]] # extract the methylation data
+```
+
+
+# Session info
+
+```{r}
+sessionInfo()
+```

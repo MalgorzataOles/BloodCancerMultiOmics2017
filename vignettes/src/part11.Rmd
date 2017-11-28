@@ -1,0 +1,572 @@
+---
+title: "Part 11"
+output:
+  BiocStyle::html_document
+---
+
+```{r, message=FALSE, include=!exists(".standalone"), eval=!exists(".standalone")}
+library("BloodCancerMultiOmics2017")
+library("Biobase")
+library("SummarizedExperiment")
+library("AnnotationDbi")
+library("org.Hs.eg.db")
+library("dplyr")
+library("abind")
+library("reshape2")
+library("RColorBrewer")
+library("glmnet")
+library("ipflasso")
+library("ggplot2")
+library("grid")
+library("DESeq2")
+```
+
+```{r echo=FALSE}
+plotDir = ifelse(exists(".standalone"), "", "part11/")
+if(plotDir!="") if(!file.exists(plotDir)) dir.create(plotDir)
+```
+
+```{r}
+options(stringsAsFactors=FALSE)
+```
+
+
+# Drug response prediction
+
+Drug response heterogeneity is caused by the unique deregulations in biology of the tumor cell. Those deregulations leave trace on the different molecular levels and have a various impact on cell's drug sensitivity profile. Here we use multivariate regression to integrate information from the multi-omic data in order to predict drug response profiles of the CLL samples.
+
+Loading the data.
+```{r}
+data(list=c("conctab", "drpar", "drugs", "patmeta", "lpdAll", "dds", "mutCOM",
+"methData"))
+```
+
+
+## Assesment of omics capacity in explaining drug response
+
+### Data pre-processing
+
+Filtering steps and transformations.
+```{r}
+e<-dds
+colnames(e)<-colData(e)$PatID
+
+
+#only consider CLL patients
+CLLPatients<-rownames(patmeta)[which(patmeta$Diagnosis=="CLL")]
+
+#Methylation Data
+methData = t(assay(methData)) 
+
+
+#RNA Data
+eCLL<-e[,colnames(e) %in% CLLPatients]
+###
+#filter out genes without gene namce
+AnnotationDF<-data.frame(EnsembleId=rownames(eCLL),stringsAsFactors=FALSE)
+AnnotationDF$symbol <- mapIds(org.Hs.eg.db,
+                     keys=rownames(eCLL),
+                     column="SYMBOL",
+                     keytype="ENSEMBL",
+                     multiVals="first")
+eCLL<-eCLL[AnnotationDF$EnsembleId[!is.na(AnnotationDF$symbol)],]
+
+#filter out low count genes
+###
+minrs <- 100
+rs  <- rowSums(assay(eCLL))
+eCLL<-eCLL[ rs >= minrs, ]
+#variance stabilize the data
+#(includes normalizing for library size and dispsersion estimation) 
+vstCounts<-varianceStabilizingTransformation(eCLL)
+vstCounts<-assay(vstCounts)
+#no NAs in data
+any(is.na(vstCounts))
+
+#filter out low variable genes
+ntop<-5000
+vstCountsFiltered<-vstCounts[order(apply(vstCounts, 1, var, na.rm=T),
+                                   decreasing = T)[1:ntop],]
+eData<-t(vstCountsFiltered)
+#no NAs
+any(is.na(eData))
+
+#genetics
+#remove features with less than 5 occurences
+mutCOMbinary<-channel(mutCOM, "binary")
+mutCOMbinary<-mutCOMbinary[featureNames(mutCOMbinary) %in% CLLPatients,]
+genData<-exprs(mutCOMbinary)
+idx <- which(colnames(genData) %in% c("del13q14_bi", "del13q14_mono"))
+genData <- genData[,-idx]
+colnames(genData)[which(colnames(genData)=="del13q14_any")] = "del13q14"
+minObs <- 5
+#remove feutes with less than 5 occurecnes
+genData<-genData[,colSums(genData, na.rm=T)>=minObs]
+
+#IGHV
+translation <- c(`U` = 0, `M` = 1)
+stopifnot(all(patmeta$IGHV %in% c("U","M", NA)))
+IGHVData <- matrix(translation[patmeta$IGHV], 
+                   dimnames = list(rownames(patmeta), "IGHV"), ncol = 1)
+IGHVData<-IGHVData[rownames(IGHVData) %in% CLLPatients,,drop=F]
+#remove patiente with NA IGHV status
+IGHVData<-IGHVData[!is.na(IGHVData), ,drop=F]
+any(is.na(IGHVData))
+
+#demographics (age and sex)
+patmeta<-subset(patmeta, Diagnosis=="CLL")
+gender <- ifelse(patmeta[,"Gender"]=="m",0,1)
+
+
+# impute missing values in age by mean
+ImputeByMean <- function(x) {x[is.na(x)] <- mean(x, na.rm=TRUE); return(x)}
+age<-ImputeByMean(patmeta[,"Age4Main"])
+
+
+demogrData <- cbind(age=age,gender=gender)
+rownames(demogrData) <- rownames(patmeta)
+
+#Pretreatment
+pretreated<-patmeta[,"IC50beforeTreatment", drop=FALSE]
+
+##### drug viabilites
+summaries <- c(paste("viaraw", 1:5, sep=".") %>% `names<-`(paste(1:5)), 
+               `4:5` = "viaraw.4_5", `1:5` = "viaraw.1_5")
+a <- do.call( abind, c( along=3, lapply( summaries, 
+                                         function(x) assayData(drpar)[[x]]))) 
+dimnames(a)[[3]] <- names(summaries)
+names(dimnames(a)) <- c( "drug", "patient", "summary" )
+viabData <- acast( melt(a), patient ~ drug + summary )
+rownames(viabData)<-c(substr(rownames(viabData),1,4)[1:3],
+                      substr(rownames(viabData),1,5)[4:nrow(viabData)])
+```
+
+
+Check overlap of data and take care of missing values present in methylation and genetic data.
+```{r}
+# common patients 
+Xlist<-list(RNA=eData, meth=methData, gen=genData, IGHV=IGHVData,
+            demographics=demogrData, drugs=viabData, pretreated=pretreated)
+PatientsPerOmic<-lapply(Xlist, rownames)
+sapply(PatientsPerOmic, length)
+
+allPatients<-Reduce(union, PatientsPerOmic)
+PatientOverview<-sapply(Xlist, function(M) allPatients %in% rownames(M))
+Patients <- (1:nrow(PatientOverview))
+Omics <- (1:ncol(PatientOverview))
+image(Patients,Omics, PatientOverview*1, axes=F, col=c("white", "black"),
+      main="Sample overview across omics")
+axis(2, at = 1:ncol(PatientOverview), labels=colnames(PatientOverview), tick=F)
+
+commonPatients<-Reduce(intersect, PatientsPerOmic)
+length(commonPatients)
+XlistCommon<-lapply(Xlist, function(data) data[commonPatients,, drop=F])
+
+#Take care of missing values (present in  genetic data)
+ImputeByMean <- function(x) {x[is.na(x)] <- mean(x, na.rm=TRUE); return(x)}
+
+#NAs in genetic
+#remove feauters with less 90% completeness
+RarlyMeasuredFeautres<-
+  which(colSums(is.na(XlistCommon$gen))>0.1*nrow(XlistCommon$gen))
+XlistCommon$gen<-XlistCommon$gen[,-RarlyMeasuredFeautres]
+#remove patients with less than 90% of genetic feautres measured
+IncompletePatients<-
+  rownames(XlistCommon$gen)[
+    (rowSums(is.na(XlistCommon$gen))>0.1*ncol(XlistCommon$gen))]
+commonPatients<-commonPatients[!commonPatients %in% IncompletePatients]
+XlistCommon<-lapply(XlistCommon, function(data) data[commonPatients,, drop=F])
+#replace remaining NA by mean and round to 0 or 1
+XlistCommon$gen<-round(apply(XlistCommon$gen, 2, ImputeByMean))
+
+#NAs in methylation
+#remove feauters with less 90% completeness
+XlistCommon$meth<-
+  XlistCommon$meth[,colSums(is.na(XlistCommon$meth))<0.1*nrow(methData)]
+#impute remainin missing values by mean for each feautre across patients
+XlistCommon$meth<-(apply(XlistCommon$meth, 2, ImputeByMean))
+
+#final dimensions of the data
+sapply(XlistCommon, dim)
+```
+
+
+Use top 20 PCs of methylation and expression as predictors.
+```{r, fig.width=12, fig.height=10}
+pcaMeth<-prcomp(XlistCommon$meth, center=T, scale. = F)
+XlistCommon$MethPCs<-pcaMeth$x[,1:20]
+colnames(XlistCommon$MethPCs)<-
+  paste("meth",colnames(XlistCommon$MethPCs), sep="")
+
+pcaExpr<-prcomp(XlistCommon$RNA, center=T, scale. = F)
+XlistCommon$RNAPCs<-pcaExpr$x[,1:20]
+colnames(XlistCommon$RNAPCs)<-paste("RNA",colnames(XlistCommon$RNAPCs), sep="")
+```
+
+
+Choose drug viabilites of interest as response variables.
+```{r}
+DOI <- c("D_006_1:5", "D_010_1:5", "D_159_1:5","D_002_4:5", "D_003_4:5",
+         "D_012_4:5", "D_063_4:5", "D_166_4:5")
+drugviab<-XlistCommon$drugs
+drugviab<-drugviab[,DOI, drop=F]
+colnames(drugviab) <- drugs[substr(colnames(drugviab),1,5),"name"]
+```
+
+
+Construct list of designs used and scale all predictors to mean zero and unit variance.
+```{r}
+ZPCs<-list(expression=XlistCommon$RNAPCs,
+        genetic=XlistCommon$gen, 
+        methylation= XlistCommon$MethPCs,
+        demographics=XlistCommon$demographics, 
+        IGHV=XlistCommon$IGHV,
+        pretreated = XlistCommon$pretreated)
+ZPCs$all<-do.call(cbind, ZPCs)
+ZPCsunscaled<-ZPCs
+ZPCsscaled<-lapply(ZPCs, scale)
+lapply(ZPCsscaled, colnames)
+```
+
+Define colors.
+```{r}
+set1 <- brewer.pal(9,"Set1")
+colMod<-c(paste(set1[c(4,1,5,3,2,7)],"88",sep=""), "grey")
+names(colMod) <-
+  c("demographics", "genetic", "IGHV","expression", "methylation", "pretreated",
+    "all")
+```
+
+
+### Lasso using multi-omic data
+
+Fit a linear model using Lasso explaining drug response by each one of the omic set separately as well as all together. As measure of explained variance use  R2 from linear models for unpenalized models (IGHV)
+and fraction of variance explained, i.e. 1- cross-validated mean squared error/total sum of squares for others.
+
+To ensure fair treatment of all features they are standardized to mean 0 and unit variance.
+To study robustness the cross-validation is repeated 100-times to obtain the mean and standard deviation shown in the figure.
+
+```{r, echo=F}
+#Function to calculate Var Explained for Penalized Regression
+R2ForPenRegPlusViz<-function(Z, drugviab, nfolds=10, alpha=1, nrep=100,
+                      Parmfrow=c(2,4), ylimMax=0.4, standardize=TRUE){
+Zlocal<-Z
+
+set.seed(1030)
+seeds<-sample(1:10000000, nrep)
+
+RepeatedR2list<-lapply(1:nrep, function(outer){
+#Use same folds for all omics to make comparable
+set.seed(seeds[outer])
+foldsAssignment<-sample(rep(seq(nfolds), length=nrow(drugviab)))
+
+R2echOmicadj<-sapply(colnames(drugviab), function(dname) {
+  d<-drugviab[,dname]
+  sapply(names(Zlocal), function(nameZ) {
+    pred<-Zlocal[[nameZ]]
+    #fit a lasso model for omics with more than one features
+    if(ncol(pred)>1){
+    fitcv<-cv.glmnet(pred,d,family="gaussian", standardize=standardize,
+                      alpha=alpha, foldid=foldsAssignment)
+    R2 <- 1-min(fitcv$cvm)/fitcv$cvm[1]
+    
+    }else {#fit a liner model for single feautres (IGHV)
+      fitlm<-lm(d~., data.frame(pred))
+      R2<- summary(fitlm)$r.squared
+    }
+    R2
+  })
+}
+  )
+})
+RepeatedR2<-RepeatedR2list
+#calculate mean and sd across repitions wiht different folds
+meanR2<-apply(simplify2array(RepeatedR2), 1:2, mean)
+sdR2<-apply(simplify2array(RepeatedR2), 1:2, sd)
+
+par(mfrow=Parmfrow, mar=c(7,5,3,3))
+for (i in 1: ncol(meanR2)) {
+    barc<-barplot(meanR2[,i], main= colnames(meanR2)[i], ylim=c(0,ylimMax),
+                  las=2, col=colMod[rownames(meanR2)], ylab="R2")
+    segments(barc, meanR2[,i]-sdR2[,i],barc, meanR2[,i]+sdR2[,i])
+}
+RepeatedR2
+}
+```
+
+Fit model and show resulting omic-prediction profiles.
+```{r lasso_main, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=9, fig.height=8}
+#FIG# 5A
+resultLassoPCA<-R2ForPenRegPlusViz(ZPCsscaled, drugviab, nfold=10, alpha=1,
+                                   nrep=100, ylimMax=0.4)
+
+df_resultLassoPCA <- melt(resultLassoPCA)
+colnames(df_resultLassoPCA) <- c("omic", "drug", "R2", "run")
+summaryR2 <- df_resultLassoPCA %>% group_by(omic, drug) %>% 
+  dplyr::summarise(meanR2=mean(R2),sdR2 = sd(R2), nR2 = length(R2)) %>%
+  mutate(seR2 = sdR2/sqrt(nR2))
+
+ggplot(summaryR2, aes(x=omic, y=meanR2, fill=omic, group=omic))+
+    geom_bar(stat = "identity") +  scale_fill_manual(values=colMod) + 
+    geom_errorbar(aes(ymax = meanR2 + sdR2,ymin = meanR2 - sdR2), position = "dodge", width = 0.25) +facet_wrap(~drug, ncol=4) +theme_bw(base_size = 18) +ylab(bquote(R^2)) + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), axis.text = element_text(colour = "black")) +xlab("")+guides(fill=guide_legend(title="Data type")) 
+```
+
+
+Optionally, the model can also be fit for all drugs in the study.
+```{r, eval=FALSE, fig.path='supp_'}
+nfolds<-10
+nrep<-100
+
+DOI <-
+  grepl("1:5",colnames(XlistCommon$drugs)) |
+  grepl("4:5",colnames(XlistCommon$drugs))
+drugviabAll<-XlistCommon$drugs
+drugviabAll<-drugviabAll[,DOI]
+colnames(drugviabAll) <- 
+  paste0(drugs[substr(colnames(drugviabAll),1,5),"name"],
+         substr(colnames(drugviabAll),6,9))
+
+R2ForPenReg(Zscaled, drugviabAll, nfold=nfolds, alpha=1, nrep=nrep,
+            Parmfrow=c(4,4), ylimMax=0.6)
+```
+
+
+## Lasso for drugs in a genetic-focussed model
+
+We perform regression analysis by adaptive LASSO using genetic features, IGHV status (coded as 0 -1 for mutated/unmutated), pretreatment status (coded as 0 -1) and methylation cluster (coded as 0 for lowly-programmed (LP), 0.5 for intermediately-programmed (IP) and 1 for highly-programmed (HP)). For each model we select the optimal penalization parameter of the second step Lasso fit of the adaptive Lasso by repeated cross-validation to get robust results.
+
+As output bar plots showing the coefficients of the selected predictors are produced.
+
+
+### General definitions
+
+We use the following abbreviations for the different data types.
+
+|   | data type           |
+|---|---------------------|
+| M | methylation cluster |
+| G | mutations           |
+| V | viability           |
+| I | ighv                |
+| P | pretreatment        |
+
+
+
+```{r echo=FALSE}
+dataType = c(M="Methylation_Cluster", V="viab", G="gen", I="IGHV", P="pretreat")
+```
+
+Color definitions for the groups.
+```{r echo=FALSE}
+coldef<-list()
+coldef["I"]<-brewer.pal(9, "Blues")[7]
+coldef["M"]<-list(brewer.pal(9, "Blues")[c(1, 5, 9)])
+coldef["G"]<-brewer.pal(8, "YlOrRd")[8]
+coldef["P"]<-"chocolate4"
+```
+
+
+### Data pre-processing
+
+Subselect CLL patients.
+```{r}
+lpdCLL = lpdAll[ , lpdAll$Diagnosis=="CLL"]
+```
+
+Prepare the data and limit the number of features by subselecting only those which include at least 5 recorded incidences. List the predictors.
+```{r}
+lpdCLL = lpdAll[ , lpdAll$Diagnosis=="CLL"]
+lpdCLL = BloodCancerMultiOmics2017:::prepareLPD(lpd=lpdCLL, minNumSamplesPerGroup=5)
+(predictorList = BloodCancerMultiOmics2017:::makeListOfPredictors(lpdCLL))
+```
+
+### Drug response prediction
+
+The prediction will be made for the following drugs and concentrations.
+
+|       | drug name     | conc |
+|-------|---------------|------|
+| D_159 | doxorubicine  | 1-5  |
+| D_006 | fludarabine   | 1-5  |
+| D_010 | nutlin-3      | 1-5  |
+| D_166 | PRT062607 HCl | 4-5  |
+| D_003 | idelalisib    | 4-5  |
+| D_002 | ibrutinib     | 4-5  |
+| D_012 | selumetinib   | 4-5  |
+| D_063 | everolimus    | 4-5  |
+
+
+
+```{r}
+drs = list("1:5"=c("D_006", "D_010", "D_159"),
+           "4:5"=c("D_002", "D_003", "D_012", "D_063", "D_166"))
+```
+
+```{r}
+predvar = unlist(BloodCancerMultiOmics2017:::makePredictions(drs=drs,
+                                 lpd=lpdCLL,
+                                 predictorList=predictorList,
+                                 lim=0.15, std=FALSE, adaLasso=TRUE),
+                 recursive=FALSE)
+```
+
+
+```{r echo=FALSE}
+details = function(dr, what) {
+  predvar[[dr]][["plot"]][[what]]
+}
+```
+
+```{r prediction-D_006, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=details("D_006","width"), fig.height=details("D_006","height"), eval=TRUE}
+#FIG# 5B
+grid.draw(details("D_006","plot"))
+```
+
+```{r prediction-D_010, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=details("D_010","width"), fig.height=details("D_010","height"), eval=TRUE}
+#FIG# 5B
+grid.draw(details("D_010","plot"))
+```
+
+```{r prediction-D_159, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=details("D_159","width"), fig.height=details("D_159","height"), eval=TRUE}
+#FIG# 5B
+grid.draw(details("D_159","plot"))
+```
+
+```{r prediction-D_002, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=details("D_002","width"), fig.height=details("D_002","height"), eval=TRUE}
+#FIG# 5B
+grid.draw(details("D_002","plot"))
+```
+
+```{r prediction-D_003, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=details("D_003","width"), fig.height=details("D_003","height"), eval=TRUE}
+#FIG# 5B
+grid.draw(details("D_003","plot"))
+```
+
+```{r prediction-D_012, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=details("D_012","width"), fig.height=details("D_012","height"), eval=TRUE}
+#FIG# 5B
+grid.draw(details("D_012","plot"))
+```
+
+```{r prediction-D_063, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=details("D_063","width"), fig.height=details("D_063","height"), eval=TRUE}
+#FIG# 5B
+grid.draw(details("D_063","plot"))
+```
+
+```{r prediction-D_166, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=details("D_166","width"), fig.height=details("D_166","height"), eval=TRUE}
+#FIG# 5B
+grid.draw(details("D_166","plot"))
+```
+
+Plot the legends.
+```{r}
+legends = BloodCancerMultiOmics2017:::makeLegends(legendFor=c("G","I","M", "P"))
+```
+
+```{r legend, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=legends[["width"]], fig.height=legends[["height"]]}
+#FIG# 5B legend
+grid.draw(legends[["plot"]])
+```
+
+Additionaly we plot the prediction for rotenone.
+```{r}
+drs_rot = list("4:5"=c("D_067"))
+predvar_rot = unlist(BloodCancerMultiOmics2017:::makePredictions(drs=drs_rot,
+                                 lpd=lpdCLL,
+                                 predictorList=predictorList,
+                                 lim=0.23, std=FALSE, adaLasso=TRUE),
+                 recursive=FALSE)
+```
+
+```{r prediction-D_067, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=predvar_rot[["D_067"]][["plot"]][["width"]], fig.height=predvar_rot[["D_067"]][["plot"]][["height"]], eval=TRUE}
+#FIG# S26
+grid.draw(predvar_rot[["D_067"]][["plot"]][["plot"]])
+```
+
+
+In a same way the prediction for all the drugs can be made.
+```{r}
+alldrs = unique(fData(lpdCLL)[fData(lpdCLL)$type=="viab","id"])
+drs = list("1:5"=alldrs, "4:5"=alldrs)
+```
+
+```{r, eval=TRUE}
+predvar2 = BloodCancerMultiOmics2017:::makePredictions(drs=drs,
+                                        lpd=lpdCLL,
+                                        predictorList=predictorList,
+                                        lim=0.23)
+```
+
+### Effect of pre-treatment
+
+In order to find out the effect of pre-treatment on the predictions of drug response we provide the following overview. The summary is made for all drugs, separating however, on ranges of drug concentrations (mean drug effect of: all five (1-5) and two lowest (4-5) concentrations of the drugs).
+
+```{r}
+givePreatreatSum = function(predNum) {
+  
+  # get model coefficients and reshape
+  coeffs <- do.call(cbind,lapply(predvar2[[predNum]], "[[", 'coeffs'))
+  coeffs <- coeffs[-1,]
+  coeffs <- as.matrix(coeffs)
+  colnames(coeffs) <- unlist(drs["1:5"])
+  colnames(coeffs) <- drugs[colnames(coeffs),"name"]
+  coeffDF <- melt(as.matrix(coeffs))
+  colnames(coeffDF) <- c("predictor", "drug", "beta")
+  coeffDF$selected <- coeffDF$beta !=0
+  
+  #sort by times being selected
+  coeffDF$predictor <- factor(coeffDF$predictor, level=)
+  
+  # number of drugs a predictor is chosen for
+  gg1 <- coeffDF %>% group_by(predictor) %>% 
+    dplyr::summarize(selectedSum = sum(selected)) %>%
+    mutate(predictor = factor(predictor,
+                              levels=predictor[order(selectedSum)])) %>%
+    ggplot(aes(x=predictor, y=selectedSum)) + 
+    geom_bar(stat="identity")+ylab("# drugs selected for") +
+    coord_flip()
+  
+  # boxplots of non-zero coeffients
+  orderMedian <- filter(coeffDF, selected) %>% group_by(predictor) %>% 
+    dplyr::summarize(medianBeta = median(abs(beta)))
+  coeffDF$predictor <- factor(
+    coeffDF$predictor,
+    levels=orderMedian$predictor[order(orderMedian$medianBeta)] )
+  gg2 <- ggplot(filter(coeffDF, selected), aes(x=predictor, y=abs(beta))) +
+    geom_boxplot() +
+    coord_flip() + ggtitle("Distribution of non-zero coefficients")
+  gridExtra::grid.arrange(gg1,gg2, ncol=1)
+  
+  # coefficeints per drug
+  ggplot(filter(coeffDF, selected), 
+         aes(x= drug, y=abs(beta), col= predictor=="Pretreatment")) +
+    geom_point() +
+    coord_flip()
+  
+  #drugs pretreatment is selected for
+  as.character(filter(coeffDF, predictor=="Pretreatment" & beta!=0)$drug)
+  PselDrugs <- as.character(
+    filter(coeffDF, predictor=="Pretreatment" & beta!=0)$drug)
+  length(PselDrugs)
+  length(drs[[1]])
+}
+```
+
+__Conc. 1-5__
+```{r pretreatment_c1-5, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=7, fig.height=10, eval=TRUE}
+givePreatreatSum(predNum=1)
+```
+
+__Conc. 4-5__
+```{r pretreatment_c4-5, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=7, fig.height=10, eval=TRUE}
+givePreatreatSum(predNum=2)
+```
+
+
+
+```{r, include=!exists(".standalone"), eval=!exists(".standalone")}
+sessionInfo()
+```
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+rm(list=ls())
+```

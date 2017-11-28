@@ -1,0 +1,588 @@
+---
+title: "Part 5"
+output:
+  BiocStyle::html_document
+---
+
+```{r, message=FALSE, warning=FALSE, include=!exists(".standalone"), eval=!exists(".standalone")}
+library("BloodCancerMultiOmics2017")
+library("Biobase")
+library("dplyr")
+library("tidyr")
+library("broom")
+library("ggplot2")
+library("grid")
+library("gridExtra")
+library("reshape2")
+library("foreach")
+library("doParallel")
+library("scales")
+library("knitr")
+registerDoParallel()
+```
+
+```{r echo=FALSE}
+plotDir = ifelse(exists(".standalone"), "", "part05/")
+if(plotDir!="") if(!file.exists(plotDir)) dir.create(plotDir)
+```
+
+```{r}
+options(stringsAsFactors=FALSE)
+```
+
+
+# Associations of drug responses with mutations in CLL (IGHV not included)
+
+In this part, we use both gene mutations and chromosome aberrations to test for gene-drug response associations. In contrast to the analysis done previously, we exclude IGHV status from testing. Additionally, we use information on patient treatment status to account for its effect on drug response screening.
+
+## Additional functions
+
+Accessor functions:
+```{r}
+# get drug responsee data
+get.drugresp <- function(lpd) {
+  drugresp = t(exprs(lpd[fData(lpd)$type == 'viab'])) %>%
+    dplyr::tbl_df() %>% dplyr::select(-ends_with(":5")) %>%
+    dplyr::mutate(ID = colnames(lpd)) %>%
+    tidyr::gather(drugconc, viab, -ID) %>%
+    dplyr::mutate(drug = drugs[substring(drugconc, 1, 5), "name"],
+           conc = sub("^D_([0-9]+_)", "", drugconc)) %>%
+    dplyr::mutate(conc = as.integer(gsub("D_CHK_", "", conc)))
+  
+  drugresp
+}
+
+# extract mutations and IGHV status
+get.somatic <- function(lpd) {
+  somatic = t(Biobase::exprs(lpd[Biobase::fData(lpd)$type == 'gen' | 
+                                   Biobase::fData(lpd)$type == 'IGHV']))
+  ## rename IGHV Uppsala to 'IGHV' (simply)
+  colnames(somatic)[grep("IGHV", colnames(somatic))] = "IGHV"
+  
+  ## at least 3 patients should have this mutation
+  min.samples = which(Matrix::colSums(somatic, na.rm = T) > 2)
+  somatic = dplyr::tbl_df(somatic[, min.samples]) %>%
+    dplyr::select(-one_of("del13q14_bi", "del13q14_mono", 
+                          "Chromothripsis", "RP11-766F14.2")) %>%
+    dplyr::rename(del13q14 = del13q14_any) %>% 
+    dplyr::mutate(ID = colnames(lpd)) %>%
+    tidyr::gather(mutation, mut.value, -ID)
+  somatic
+}
+```
+
+Define the ggplot themes
+```{r ggTheme}
+t1<-theme(                              
+  plot.background = element_blank(), 
+  panel.grid.major = element_line(),
+  panel.grid.major.x = element_line(linetype = "dotted", colour = "grey"),
+  panel.grid.minor = element_blank(), 
+  panel.border = element_blank(), 
+  panel.background = element_blank(),
+  axis.line = element_line(size=.4),
+  axis.line.x = element_line(),
+  axis.line.y = element_line(),
+  axis.text.x  = element_text(angle=90, size=12, 
+                              face="bold", hjust = 1, vjust = 0.4),
+  axis.text.y = element_text(size = 14),
+  axis.ticks.x = element_line(linetype = "dotted"),
+  axis.ticks.length = unit(0.3,"cm"),
+  axis.title.x = element_text(face="bold", size=16), 
+  axis.title.y = element_text(face="bold", size=20),
+  plot.title = element_text(face="bold", size=16, hjust = 0.5)
+)
+
+## theme for the legend
+t.leg <-  theme(legend.title = element_text(face='bold', 
+                                            hjust = 1, size=11),
+                legend.position = c(0, 0.76),
+                legend.key = element_blank(),
+                legend.text = element_text(size=12),
+                legend.background = element_rect(color = "black"))
+```
+
+Define the main color palette: 
+```{r colorPalette}
+colors= c("#015872","#3A9C94","#99977D","#ffbf00","#5991C7","#99cc00",
+          "#D5A370","#801416","#B2221C","#ff5050","#33bbff","#5c5cd6",
+          "#E394BB","#0066ff","#C0C0C0")
+```
+
+Get pretreatment status:
+```{r}
+get.pretreat <- function(patmeta, lpd) {
+  patmeta = patmeta[rownames(patmeta) %in% colnames(lpd),]
+  data.frame(ID=rownames(patmeta), pretreat=!patmeta$IC50beforeTreatment) %>% 
+    mutate(pretreat = as.factor(pretreat))
+  
+}
+```
+
+Merge drug response, pretreatment information and somatic mutation data sets
+```{r}
+make.dr <- function(resp, features, patmeta, lpd) {
+  treat = get.pretreat(patmeta, lpd)
+  dr = full_join(resp, features) %>% 
+    inner_join(treat) 
+}
+```
+
+Summarize viabilities using Tukey's medpolish
+```{r}
+get.medp <- function(drugresp) {
+  tab = drugresp %>% group_by(drug, conc) %>% 
+    do(data.frame(v = .$viab, ID = .$ID)) %>% spread(ID, v)
+  
+  med.p = foreach(n=unique(tab$drug), .combine = cbind) %dopar% {
+    tb = filter(tab, drug == n) %>% ungroup() %>% dplyr::select(-(drug:conc)) %>% 
+      as.matrix %>% `rownames<-`(1:5)
+    mdp = stats::medpolish(tb)
+    df = as.data.frame(mdp$col) + mdp$overall
+    colnames(df) <- n
+    df
+  }
+  
+  medp.viab = dplyr::tbl_df(med.p) %>% dplyr::mutate(ID = rownames(med.p)) %>%
+    tidyr::gather(drug, viab, -ID) 
+  medp.viab
+}
+```
+
+Process labels for the legend:
+```{r}
+get.labels <- function(pvals) {
+  lev = levels(factor(pvals$mutation))
+  lev = gsub("^(gain)([0-9]+)([a-z][0-9]+)$", "\\1(\\2)(\\3)", lev)
+  lev =  gsub("^(del)([0-9]+)([a-z].+)$", "\\1(\\2)(\\3)", lev)
+  lev = gsub("trisomy12", "trisomy 12", lev)
+  lev
+}
+```
+
+Get order of mutations
+```{r}
+get.mutation.order <- function(lev) {
+  ord = c("trisomy 12", "TP53",
+          "del(11)(q22.3)", "del(13)(q14)",
+          "del(17)(p13)",
+          "gain(8)(q24)",
+          "BRAF", "CREBBP", "PRPF8",
+          "KLHL6", "NRAS", "ABI3BP", "UMODL1")
+  mut.order = c(match(ord, lev),
+                grep("Other", lev), grep("Below", lev))
+  
+  mut.order
+}
+```
+
+Group drugs by pathway/target
+```{r}
+get.drug.order <- function(pvals, drugs) {
+  ## determine drug order by column sums of log-p values
+  dr.order = pvals %>% 
+    mutate(logp = -log10(p.value)) %>% 
+    group_by(drug) %>% summarise(logsum = sum(logp)) 
+  
+  dr.order = inner_join(dr.order, pvals %>%
+                          group_by(drug) %>% 
+                          summarise(n = length(unique(mutation)))) %>% 
+    arrange(desc(n), desc(logsum))
+  
+  dr.order = inner_join(dr.order, drugs %>% rename(drug = name))
+  
+  dr.order = left_join(dr.order, dr.order %>% 
+                         group_by(`target_category`) ) %>%
+    arrange(`target_category`, drug) %>%
+    filter(! `target_category` %in% c("ALK", "Angiogenesis", "Other")) %>%
+    filter(!is.na(`target_category`))
+  
+  dr.order
+}
+```
+
+Add pathway annotations for selected drug classes
+```{r}
+make.annot <- function(g, dr.order) {
+  # make a color palette for drug pathways
+  drug.class = c("#273649", "#647184", "#B1B2C8",
+                 "#A7755D", "#5D2E1C", "#38201C")
+  pathways = c("BH3","B-cell receptor","DNA damage",
+               "MAPK", "PI3K", "Reactive oxygen species")
+  names(pathways) = c("BH3", "BCR inhibitors", "DNA damage",
+                      "MAPK", "PI3K", "ROS")
+  
+  for (i in 1:6) {
+    prange = grep(pathways[i], dr.order$`target_category`)
+    path.grob <- grobTree(rectGrob(gp=gpar(fill=drug.class[i])),
+                          textGrob(names(pathways)[i], 
+                                   gp = gpar(cex =0.8, col = "white")))
+    g = g + 
+      annotation_custom(path.grob, 
+                        xmin = min(prange) -0.25 - 0.1 * ifelse(i == 2, 1, 0), 
+                        xmax = max(prange) + 0.25 + 0.1 * ifelse(i == 2, 1, 0), 
+                        ymin = -0.52, ymax = -0.2)
+  }
+  g
+}
+```
+
+Define a function for `glegend`
+```{r}
+g_legend<-function(a.gplot){
+  tmp <- ggplot_gtable(ggplot_build(a.gplot))
+  leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
+  legend <- tmp$grobs[[leg]]
+  legend
+} ## end define
+```
+
+## Data setup
+
+Load the data.
+```{r}
+data(list=c("conctab", "drugs", "lpdAll", "patmeta"))
+```
+
+Get drug response data.
+```{r preprocesslpd}
+lpdCLL <- lpdAll[ , lpdAll$Diagnosis=="CLL"]
+## extract viability data for 5 different concentrations
+drugresp = get.drugresp(lpdCLL)
+```
+
+Get somatic mutations and structural variants.
+```{r preprocessMuts}
+## extract somatic variants
+somatic = get.somatic(lpdCLL) %>% 
+  mutate(mut.value = as.factor(mut.value))
+```
+
+## Test for drug-gene associations
+
+Summarize drug response using median polish.
+```{r medPolish, warning=FALSE, results='hide'}
+## compute median polish patient effects and recalculate p-values
+medp.viab = get.medp(drugresp)
+dr = make.dr(medp.viab, somatic, patmeta, lpdCLL)
+```
+
+Calculate $p$ values and FDR (10%).
+```{r pvalsAndFDR}
+pvals = dr %>% group_by(drug, mutation) %>%
+  do(tidy(t.test(viab ~ mut.value, data = ., var.equal = T))) %>%
+  dplyr::select(drug, mutation, p.value)
+
+# compute the FDR threshold
+fd.thresh = 10
+padj = p.adjust(pvals$p.value, method = "BH")
+fdr = max(pvals$p.value[which(padj <= fd.thresh/100)])
+```
+
+Remove unnecessary mutations and bad drugs.
+```{r subsetPvals}
+# selected mutations
+select.mutations = c("trisomy12", "TP53",
+        "del11q22.3", "del13q14",
+        "del17p13",
+        "gain8q24",
+        "BRAF", "CREBBP", "PRPF8",
+        "KLHL6", "NRAS", "ABI3BP", "UMODL1")
+
+pvals = filter(pvals, mutation != 'IGHV')
+pvals = pvals %>% ungroup() %>%
+  mutate(mutation = ifelse(p.value > fdr, 
+                           paste0("Below ", fd.thresh,"% FDR"), mutation)) %>%
+  mutate(mutation = ifelse(!(mutation %in% select.mutations) & 
+                             !(mutation == paste0("Below ", fd.thresh,"% FDR")), 
+                           "Other", mutation)) %>%
+  filter(drug != "bortezomib" & drug != "NSC 74859")
+```
+
+Reshape names of genomic rearrangements.
+```{r renameMuts}
+## order of mutations
+lev = get.labels(pvals)
+folge = get.mutation.order(lev)
+```
+
+Set order of drugs.
+```{r pvalsForGGplot}
+drugs = drugs[,c("name", "target_category")]
+# get the drug order
+dr.order = get.drug.order(pvals, drugs)
+```
+
+
+## Plot results
+
+### Main Figure
+
+Function for generating the figure.
+```{r}
+plot.pvalues <- function(pvals, dr.order, folge, colors, shapes) {
+  g = ggplot(data = filter(pvals, drug %in% dr.order$drug)) +
+  geom_point(aes(x = factor(drug, levels = dr.order$drug), y = -log10(p.value), 
+                 colour = factor(mutation, levels(factor(mutation))[folge]),
+                 shape  = factor(mutation, levels(factor(mutation))[folge])),
+             size=5, show.legend = T)  + 
+  scale_color_manual(name = "Mutations",
+                     values = colors,
+                     labels = lev[folge]) + 
+  scale_shape_manual(name = "Mutations",
+                     values = shapes,
+                     labels = lev[folge]) + t1 + 
+  labs(x = "", y = expression(paste(-log[10], "p")), title = "") +
+    scale_y_continuous(expression(italic(p)*"-value"),
+                       breaks=seq(0,10,5),
+                       labels=math_format(expr=10^.x)(-seq(0,10,5))) 
+  g
+}
+```
+
+
+```{r pvalsMain, fig.path=plotDir, dev=c("png", "pdf"), fig.width=14, fig.height=10}
+#FIG# 4A
+## plot the p-values 
+g = plot.pvalues(pvals, dr.order, folge, 
+                 colors, shapes = c(rep(16,13), c(1,1)))
+
+## add FDR threshold
+g = g + geom_hline(yintercept = -log10(fdr),
+                   linetype="dashed", size=0.3)
+
+g = g + 
+  annotation_custom(grob = textGrob(label = paste0("FDR", fd.thresh, "%"), 
+                                    hjust = 1, vjust = 1, 
+                                    gp = gpar(cex = 0.5,
+                                              fontface = "bold",
+                                              fontsize = 25)),
+                    ymin = -log10(fdr) - 0.2, 
+                    ymax = -log10(fdr) + 0.5, 
+                    xmin = -1.3, xmax = 1.5) + 
+  theme(legend.position = "none")
+
+# generate pathway/target annotations for certain drug classes
+#g = make.annot(g, dr.order)
+
+# legend guide
+leg.guides <- guides(colour = guide_legend(ncol = 1, 
+                                           byrow = TRUE,
+                                           override.aes = list(size = 3),
+                                           title = "Mutations",
+                                           label.hjust = 0,
+                                           keywidth = 0.4,
+                                           keyheight = 0.8), 
+                      shape = guide_legend(ncol = 1, 
+                                           byrow = TRUE,
+                                           title = "Mutations",
+                                           label.hjust = 0,
+                                           keywidth = 0.4,
+                                           keyheight = 0.8))
+
+# create a legend grob
+legend = g_legend(g + t.leg +  leg.guides)
+
+## arranget the main plot and the legend
+# using grid graphics
+gt <- ggplot_gtable(ggplot_build(g + theme(legend.position = 'none')))
+gt$layout$clip[gt$layout$name == "panel"] <- "off"
+
+grid.arrange(gt, legend,
+             ncol=2, nrow=1, widths=c(0.92,0.08))
+```
+
+### Supplementary Figure (incl. pretreatment)
+
+In the supplementary figure we use pretreatment status as a blocking factor, i.e. we model drug sensitivity - gene variant associations as: `lm(viability ~ mutation + pretreatment)`
+
+```{r}
+## lm(viab ~ mutation + pretreatment.status)
+pvals = dr %>% group_by(drug, mutation) %>%
+  do(tidy(lm(viab ~ mut.value + pretreat, data = .))) %>%
+  filter(term == 'mut.value1') %>%
+  dplyr::select(drug, mutation, p.value)
+
+# compute the FDR threshold
+fd.thresh = 10
+padj = p.adjust(pvals$p.value, method = "BH")
+fdr = max(pvals$p.value[which(padj <= fd.thresh/100)])
+
+
+pvals = filter(pvals, mutation != 'IGHV')
+pvals = pvals %>% ungroup() %>%
+  mutate(mutation = ifelse(p.value > fdr,
+                           paste0("Below ", fd.thresh,"% FDR"),
+                           mutation)) %>%
+  mutate(mutation = ifelse(!(mutation %in% select.mutations) &
+                             !(mutation == paste0("Below ",
+                                                  fd.thresh,"% FDR")), 
+                           "Other", mutation)) %>%
+  filter(drug != "bortezomib" & drug != "NSC 74859")
+
+
+lev = get.labels(pvals)
+folge = get.mutation.order(lev)
+
+# get the drug order
+dr.order = get.drug.order(pvals, drugs)
+
+mut.order = folge[!is.na(folge)]
+```
+
+After recomputing the $p$-values (using a linear model that accounts for pretreatment status), plot the figure:
+```{r pvalsSupp, fig.path=plotDir, dev=c("png", "pdf"), fig.width=14, fig.height=10}
+#FIG# S19
+## plot the p-values 
+g = plot.pvalues(pvals, dr.order, mut.order, 
+                 colors[which(!is.na(folge))], shapes = c(rep(16,9), c(1,1)))
+
+## add FDR threshold
+g = g + geom_hline(yintercept = -log10(fdr),
+                   linetype="dashed", size=0.3)
+
+g = g + 
+  annotation_custom(grob = textGrob(label = paste0("FDR", fd.thresh, "%"), 
+                                    hjust = 1, vjust = 1, 
+                                    gp = gpar(cex = 0.5,
+                                              fontface = "bold",
+                                              fontsize = 25)),
+                    ymin = -log10(fdr) - 0.2, 
+                    ymax = -log10(fdr) + 0.5, 
+                    xmin = -1.3, xmax = 1.5) + 
+  theme(legend.position = "none")
+
+# generate pathway/target annotations for certain drug classes
+#g = make.annot(g, dr.order)
+
+# legend guide
+leg.guides <- guides(colour = guide_legend(ncol = 1, 
+                                           byrow = TRUE,
+                                           override.aes = list(size = 3),
+                                           title = "Mutations",
+                                           label.hjust = 0,
+                                           keywidth = 0.4,
+                                           keyheight = 0.8), 
+                      shape = guide_legend(ncol = 1, 
+                                           byrow = TRUE,
+                                           title = "Mutations",
+                                           label.hjust = 0,
+                                           keywidth = 0.4,
+                                           keyheight = 0.8))
+
+# create a legend grob
+legend = g_legend(g + t.leg +  leg.guides)
+
+## arranget the main plot and the legend
+# using grid graphics
+gt <- ggplot_gtable(ggplot_build(g + theme(legend.position = 'none')))
+gt$layout$clip[gt$layout$name == "panel"] <- "off"
+
+grid.arrange(gt, legend,
+             ncol=2, nrow=1, widths=c(0.92,0.08))
+```
+
+
+## Comparison of $P$-Values
+
+```{r}
+pvals.main = dr %>% group_by(drug, mutation) %>%
+  do(tidy(t.test(viab ~ mut.value, data = ., var.equal = T))) %>%
+  dplyr::select(drug, mutation, p.value)
+
+p.main.adj = p.adjust(pvals.main$p.value, method = "BH")
+fdr.main = max(pvals.main$p.value[which(p.main.adj <= fd.thresh/100)])
+
+pvals.main = filter(pvals.main, mutation != "IGHV") %>%
+             rename(p.main = p.value)
+
+
+## lm(viab ~ mutation + pretreatment.status)
+pvals.sup = dr %>% group_by(drug, mutation) %>%
+  do(tidy(lm(viab ~ mut.value + pretreat, data = .))) %>%
+  filter(term == 'mut.value1') %>%
+  dplyr::select(drug, mutation, p.value)
+
+p.sup.adj = p.adjust(pvals.sup$p.value, method = "BH")
+fdr.sup = max(pvals.sup$p.value[which(p.sup.adj <= fd.thresh/100)])
+
+pvals.sup = filter(pvals.sup, mutation != "IGHV") %>%
+  rename(p.sup = p.value)
+
+
+pvals = inner_join(pvals.main, pvals.sup)
+pvals = mutate(pvals, signif = ifelse(p.main > fdr.main, 
+                                      ifelse(p.sup > fdr.sup, 
+                                             "Below 10% FDR in both models", 
+                                             "Significant with pretreatment accounted"), 
+                                      ifelse(p.sup > fdr.sup, 
+                                             "Significant without pretreatment in the model", 
+                                             "Significant in both models")))
+
+t2<-theme(                              
+  plot.background = element_blank(), 
+  panel.grid.major = element_line(),
+  panel.grid.major.x = element_line(),
+  panel.grid.minor = element_blank(), 
+  panel.border = element_blank(), 
+  panel.background = element_blank(),
+  axis.line = element_line(size=.4),
+  axis.line.x = element_line(),
+  axis.line.y = element_line(),
+  axis.text.x  = element_text(size=12),
+  axis.text.y = element_text(size = 12),
+  axis.title.x = element_text(face="bold", size=12), 
+  axis.title.y = element_text(face="bold", size=12),
+  legend.title = element_text(face='bold', 
+                                            hjust = 1, size=10),
+  legend.position = c(0.78, 0.11),
+  legend.key = element_blank(),
+  legend.text = element_text(size=10),
+  legend.background = element_rect(color = "black")
+)
+```
+
+
+```{r pvalComparisonScatterplot, fig.path=plotDir, dev=c("png", "pdf"), fig.width=10, fig.height=7}
+#FIG# S19
+ggplot(pvals, aes(-log10(p.main), -log10(p.sup), colour = factor(signif))) + 
+  geom_point() + t2 + labs(x = expression(paste(-log[10], "p, pretreatment not considered", sep = "")),
+                                   y = expression(paste(-log[10], "p, accounting for pretreatment", sep = ""))) +
+  coord_fixed() +
+  scale_x_continuous(breaks = seq(0,9,by = 3)) + 
+  scale_y_continuous(breaks = seq(0,9,by = 3)) + 
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed") + 
+  scale_color_manual(name = "Statistical Significance",
+                     values = c("#F1BB7B","#669999", "#FD6467", "#5B1A18"))
+```
+
+
+What are the drug-mutation pairs that are significant only in one or another model (i.e. only without pretreatment or with pretreatment included)? 
+
+```{r}
+signif.in.one = filter(pvals, 
+                       signif %in% c("Significant with pretreatment accounted",
+                            "Significant without pretreatment in the model")) %>%
+        arrange(signif)
+kable(signif.in.one, digits = 4,
+      align = c("l", "l", "c", "c", "c"),
+      col.names = c("Drug", "Mutation", "P-value (Main)",
+                    "P-value (Supplement)", "Statistical significance"),
+      format.args = list(width = 14))
+```
+
+Produce LaTeX output for the Supplement:
+```{r, comment=NA, eval=FALSE}
+print(kable(signif.in.one, format = "latex", digits = 4,
+       align = c("l", "l", "c", "c", "c"),
+      col.names = c("Drug", "Mutation", "P-value (Main)",
+                    "P-value (Supplement)", "Statistical significance")))
+```
+
+```{r, include=!exists(".standalone"), eval=!exists(".standalone")}
+sessionInfo()
+```
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+rm(list=ls())
+```

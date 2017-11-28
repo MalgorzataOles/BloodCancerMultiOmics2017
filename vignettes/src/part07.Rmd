@@ -1,0 +1,534 @@
+---
+title: "Part 7"
+output:
+  BiocStyle::html_document
+---
+
+```{r, message=FALSE, include=!exists(".standalone"), eval=!exists(".standalone")}
+library("BloodCancerMultiOmics2017")
+library("DESeq2")
+library("reshape2")
+library("dplyr")
+library("tibble")
+library("Biobase")
+library("SummarizedExperiment")
+library("genefilter")
+library("piano") # loadGSC
+library("ggplot2")
+library("gtable")
+library("grid")
+```
+
+```{r echo=FALSE}
+plotDir = ifelse(exists(".standalone"), "", "part07/")
+if(plotDir!="") if(!file.exists(plotDir)) dir.create(plotDir)
+```
+
+```{r}
+options(stringsAsFactors=FALSE)
+```
+
+
+# Gene set enrichment analysis on BTK, mTOR, MEK groups
+
+Based on the classification of drug response phenotypes we divided CLL samples into distinct groups driven by the increased sensitivity towards BTK, mTOR and MEK inhibition. Here we perform gene set enrichment analysis to find the causes of distinctive drug response phenotypes in the gene expression data.
+
+Load objects.
+```{r}
+data(list=c("dds", "lpdAll"))
+
+gmts = list(H=system.file("extdata","h.all.v5.1.symbols.gmt",
+                          package="BloodCancerMultiOmics2017"),
+            C6=system.file("extdata","c6.all.v5.1.symbols.gmt",
+                           package="BloodCancerMultiOmics2017"))
+```
+
+Divide patients into response groups.
+```{r}
+patGroup = defineResponseGroups(lpd=lpdAll)
+```
+
+## Preprocessing RNAseq data
+
+Subsetting RNAseq data to include the CLL patients for which the drug screen was performed.
+```{r subset}
+lpdCLL <- lpdAll[fData(lpdAll)$type=="viab",
+                 pData(lpdAll)$Diagnosis %in% c("CLL")]
+
+ddsCLL <- dds[,colData(dds)$PatID %in% colnames(lpdCLL)]
+```
+
+Read in group and add annotations to the RNAseq data set.
+```{r pat_group}
+ddsCLL <- ddsCLL[,colData(ddsCLL)$PatID %in% rownames(patGroup)]
+
+#remove genes without gene symbol annotations
+ddsCLL <- ddsCLL[!is.na(rowData(ddsCLL)$symbol),]
+ddsCLL <- ddsCLL[rowData(ddsCLL)$symbol != "",]
+
+#add drug sensitivity annotations to coldata
+colData(ddsCLL)$group <- factor(patGroup[colData(ddsCLL)$PatID, "group"])
+```
+
+Remove rows that contain too few counts.
+```{r remove_low_counts}
+#only keep genes that have counts higher than 10 in any sample
+keep <- apply(counts(ddsCLL), 1, function(x) any(x >= 10)) 
+ddsCLL <- ddsCLL[keep,]
+dim(ddsCLL)
+```
+
+Remove transcripts which do not show variance across samples.
+```{r filtering}
+ddsCLL <- estimateSizeFactors(ddsCLL)
+sds <- rowSds(counts(ddsCLL, normalized = TRUE))
+sh <- shorth(sds)
+ddsCLL <- ddsCLL[sds >= sh,]
+```
+
+Variance stabilizing transformation
+```{r, cache=TRUE}
+ddsCLL.norm <- varianceStabilizingTransformation(ddsCLL)
+```
+
+## Differential gene expression
+
+Perform differential gene expression using DESeq2.
+```{r DE, cache=TRUE}
+DEres <- list()
+design(ddsCLL) <- ~ group
+
+rnaRaw <- DESeq(ddsCLL, betaPrior = FALSE)
+
+#extract results for different comparisons
+# responders versus weak-responders
+DEres[["BTKnone"]] <- results(rnaRaw, contrast = c("group","BTK","none"))
+DEres[["MEKnone"]] <- results(rnaRaw, contrast = c("group","MEK","none"))
+DEres[["mTORnone"]] <- results(rnaRaw, contrast = c("group","mTOR","none"))
+```
+
+## Gene set enrichment analysis
+
+The gene set enrichment analysis will be performed by using the MSigDB gene set collections C6 and Hallmark (http://software.broadinstitute.org/gsea/msigdb/ ). For each collection we will show the top five enriched gene sets and respective differentially expressed genes. Gene set enrichment analysis will be performed on the ranked gene lists using the Parametric Analysis of Gene Set Enrichment (PAGE).
+
+
+### Functions for enrichment analysis and plots
+
+Define cut-off.
+```{r}
+pCut = 0.05
+```
+
+Function to run GSEA or PAGE in R.
+```{r gsea_function}
+runGSEA <- function(inputTab, gmtFile, GSAmethod="gsea", nPerm=1000){
+    inGMT <- loadGSC(gmtFile,type="gmt")
+     #re-rank by score
+    rankTab <- inputTab[order(inputTab[,1],decreasing = TRUE),,drop=FALSE] 
+    if (GSAmethod == "gsea"){
+        #readin geneset database
+        #GSEA analysis
+        res <- runGSA(geneLevelStats = rankTab,
+                      geneSetStat = GSAmethod,
+                      adjMethod = "fdr", gsc=inGMT,
+                      signifMethod = 'geneSampling', nPerm = nPerm)
+        GSAsummaryTable(res)
+    } else if (GSAmethod == "page"){
+        res <- runGSA(geneLevelStats = rankTab,
+                      geneSetStat = GSAmethod,
+                      adjMethod = "fdr", gsc=inGMT,
+                      signifMethod = 'nullDist')
+        GSAsummaryTable(res)
+    }
+}
+```
+
+Function which run the GSE for each response group.
+```{r}
+runGSE = function(gmt) {
+  
+  Res <- list()
+  for (i in names(DEres)) {
+    dataTab <- data.frame(DEres[[i]])
+    dataTab$ID <- rownames(dataTab)
+    #filter using pvalues
+    dataTab <- filter(dataTab, pvalue <= pCut) %>%
+                  arrange(pvalue) %>% 
+                  mutate(Symbol = rowData(ddsCLL[ID,])$symbol)
+    dataTab <- dataTab[!duplicated(dataTab$Symbol),]
+    statTab <- data.frame(row.names = dataTab$Symbol, stat = dataTab$stat)
+    resTab <- runGSEA(inputTab=statTab, gmtFile=gmt, GSAmethod="page")
+    Res[[i]] <- arrange(resTab,desc(`Stat (dist.dir)`))
+  }
+  Res
+}
+```
+
+Function to get the list of genes enriched in a set.
+```{r get_genes_function}
+getGenes <- function(inputTab, gmtFile){
+  geneList <- loadGSC(gmtFile,type="gmt")$gsc
+  enrichedUp <- lapply(geneList, function(x) 
+    intersect(rownames(inputTab[inputTab[,1] >0,,drop=FALSE]),x))
+  enrichedDown <- lapply(geneList, function(x)
+    intersect(rownames(inputTab[inputTab[,1] <0,,drop=FALSE]),x))
+  return(list(up=enrichedUp, down=enrichedDown))
+}
+```
+
+A function to plot the heat map of intersection of genes in different gene sets.
+```{r intersection_heatmap}
+plotSetHeatmap <- 
+  function(geneTab, enrichTab, topN, gmtFile, tittle="",
+           asterixList = NULL, anno=FALSE) {
+
+    if (nrow(enrichTab) < topN) topN <- nrow(enrichTab)
+    enrichTab <- enrichTab[seq(1,topN),]
+
+    geneList <- getGenes(geneTab,gmtFile)
+    
+    geneList$up <- geneList$up[enrichTab[,1]]
+    geneList$down <- geneList$down[enrichTab[,1]]
+    
+    #form a table 
+    allGenes <- unique(c(unlist(geneList$up),unlist(geneList$down)))
+    allSets <- unique(c(names(geneList$up),names(geneList$down)))
+    plotTable <- matrix(data=NA,ncol = length(allSets),
+                        nrow = length(allGenes),
+                        dimnames = list(allGenes,allSets))
+    for (setName in names(geneList$up)) {
+      plotTable[geneList$up[[setName]],setName] <- 1
+    }
+    for (setName in names(geneList$down)) {
+      plotTable[geneList$down[[setName]],setName] <- -1
+    }
+
+    if(is.null(asterixList)) {
+      #if no correlation table specified, order by the number of
+      # significant gene
+      geneOrder <- rev(
+        rownames(plotTable[order(rowSums(plotTable, na.rm = TRUE),
+                                 decreasing =FALSE),]))
+    } else {
+      #otherwise, order by the p value of correlation
+      asterixList <- arrange(asterixList, p)
+      geneOrder <- filter(
+        asterixList, symbol %in% rownames(plotTable))$symbol
+      geneOrder <- c(
+        geneOrder, rownames(plotTable)[! rownames(plotTable) %in% geneOrder])
+    }
+    
+    plotTable <- melt(plotTable)
+    colnames(plotTable) <- c("gene","set","value")
+    plotTable$gene <- as.character(plotTable$gene)
+    
+    if(!is.null(asterixList)) {
+      #add + if gene is positivily correlated with sensitivity, else add "-"
+      plotTable$ifSig <- asterixList[
+        match(plotTable$gene, asterixList$symbol),]$coef
+      plotTable <- mutate(plotTable, ifSig =
+                            ifelse(is.na(ifSig) | is.na(value), "",
+                                   ifelse(ifSig > 0, "-", "+")))
+    }
+    plotTable$value <- replace(plotTable$value,
+                               plotTable$value %in% c(1), "Up")
+    plotTable$value <- replace(plotTable$value,
+                               plotTable$value %in%  c(-1), "Down")
+    
+    allSymbols <- plotTable$gene
+    
+    geneSymbol <- geneOrder
+    
+    if (anno) { #if add functional annotations in addition to gene names
+      annoTab <- tibble(symbol = rowData(ddsCLL)$symbol, 
+                        anno = sapply(rowData(ddsCLL)$description,
+                                      function(x) unlist(strsplit(x,"[[]"))[1]))
+      annoTab <- annoTab[!duplicated(annoTab$symbol),]
+      annoTab$combine <- sprintf("%s (%s)",annoTab$symbol, annoTab$anno)
+      plotTable$gene <- annoTab[match(plotTable$gene,annoTab$symbol),]$combine
+      geneOrder <- annoTab[match(geneOrder,annoTab$symbol),]$combine
+      geneOrder <- rev(geneOrder)
+    }
+    
+    plotTable$gene <- factor(plotTable$gene, levels =geneOrder)
+    plotTable$set <- factor(plotTable$set, levels = enrichTab[,1])
+
+
+    g <- ggplot(plotTable, aes(x=set, y = gene)) +
+      geom_tile(aes(fill=value), color = "black") +
+      scale_fill_manual(values = c("Up"="red","Down"="blue")) +
+      xlab("") + ylab("") + theme_classic() +
+      theme(axis.text.x=element_text(size=7, angle = 60, hjust = 0),
+            axis.text.y=element_text(size=7),
+            axis.ticks = element_line(color="white"),
+            axis.line = element_line(color="white"),
+            legend.position = "none") +
+      scale_x_discrete(position = "top") +
+      scale_y_discrete(position = "right")
+    
+    if(!is.null(asterixList)) {
+      g <- g + geom_text(aes(label = ifSig), vjust =0.40)
+    }
+    
+    # construct the gtable
+    wdths = c(0.05, 0.25*length(levels(plotTable$set)), 5)
+    hghts = c(2.8, 0.1*length(levels(plotTable$gene)), 0.05)
+    gt = gtable(widths=unit(wdths, "in"), heights=unit(hghts, "in"))
+    ## make grobs
+    ggr = ggplotGrob(g)
+    ## fill in the gtable
+    gt = gtable_add_grob(gt, gtable_filter(ggr, "panel"), 2, 2)
+    gt = gtable_add_grob(gt, ggr$grobs[[5]], 1, 2) # top axis
+    gt = gtable_add_grob(gt, ggr$grobs[[9]], 2, 3) # right axis
+    
+    return(list(list(plot=gt,
+                     width=sum(wdths),
+                     height=sum(hghts),
+                     genes=geneSymbol)))
+}    
+```
+
+Prepare stats per gene for plotting.
+```{r}
+statTab = setNames(lapply(c("mTORnone","BTKnone","MEKnone"), function(gr) {
+  dataTab <- data.frame(DEres[[gr]])
+  dataTab$ID <- rownames(dataTab)
+  #filter using pvalues
+  dataTab <- filter(dataTab, pvalue <= pCut) %>%
+    arrange(pvalue) %>%
+    mutate(Symbol = rowData(ddsCLL[ID,])$symbol) %>%
+    filter(log2FoldChange > 0)
+  dataTab <- dataTab[!duplicated(dataTab$Symbol),]
+  data.frame(row.names = dataTab$Symbol, stat = dataTab$stat)
+}), nm=c("mTORnone","BTKnone","MEKnone"))
+```
+
+### Geneset enrichment based on Hallmark set (H)
+
+Perform enrichment analysis using PAGE method.
+```{r run_GSE_hallmark, warning=FALSE, message= FALSE}
+hallmarkRes = runGSE(gmt=gmts[["H"]])
+```
+
+### Geneset enrichment based on oncogenic signature set (C6)
+
+Perform enrichment analysis using PAGE method.
+```{r run_GSE_C6, warning=FALSE, message= FALSE}
+c6Res = runGSE(gmt=gmts[["C6"]])
+```
+
+## Everolimus response VS gene expression (within mTOR group)
+
+To further investiage the association between expression and drug sensitivity group at gene level, correlation test was performed to identify genes whose expressions are correlated with the sensitivity to the mTOR inhibitor (everolimus) sensitivity within the mTOR group.
+
+### Correlation test
+Prepare drug sensitivity vector and gene expression matrix
+```{r}
+ddsCLL.mTOR <- ddsCLL.norm[,ddsCLL.norm$group %in% "mTOR"]
+viabMTOR <- exprs(lpdCLL["D_063_4:5", ddsCLL.mTOR$PatID])[1,]
+stopifnot(all(ddsCLL.mTOR$PatID == colnames(viabMTOR)))  
+```
+
+Filtering and applying variance stabilizing transformation on RNAseq data
+```{r}
+#only keep genes that have counts higher than 10 in any sample
+keep <- apply(assay(ddsCLL.mTOR), 1, function(x) any(x >= 10)) 
+ddsCLL.mTOR <- ddsCLL.mTOR[keep,]
+dim(ddsCLL.mTOR)
+```
+
+Association test using Pearson correlation
+```{r}
+corResult <- tibble(ID = rownames(ddsCLL.mTOR), 
+                    symbol = rowData(ddsCLL.mTOR)$symbol,
+                    coef = NA,
+                    p = NA)
+
+for (i in seq(nrow(corResult))) {
+  res <- cor.test(viabMTOR, assay(ddsCLL.mTOR[i,])[1,], method = "pearson")
+  corResult[i,c(3,4)] <- c(res$estimate[[1]], res$p.value)
+}
+
+corResult <- arrange(corResult, p) %>% mutate(p.adj = p.adjust(p, method="BH"))
+```
+
+### Enrichment heatmaps for mTOR group with overlapped genes indicated
+
+The genes that are positively correlated with everolimus sensitivity are labeled as "+" in the heatmap and the negatively correlated genes are labeled as "-".
+
+Plot for C6 gene sets
+```{r}
+pCut = 0.05
+corResult.sig <- filter(corResult, p <= pCut)
+c6Plot <- plotSetHeatmap(geneTab=statTab[["mTORnone"]],
+                enrichTab=c6Res[["mTORnone"]],
+                topN=5, gmtFile=gmts[["C6"]],
+                #add asterix in front of the overlapped genes
+                asterixList = corResult.sig, 
+                anno=TRUE, i)
+```
+
+```{r fig_mTOR_C6_asterix, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.height=c6Plot[[1]][["height"]], fig.width=c6Plot[[1]][["width"]]}
+#FIG# S13 B left
+grid.draw(c6Plot[[1]]$plot)
+```
+
+Plot for Hallmark gene sets
+```{r}
+hallmarkPlot <- plotSetHeatmap(geneTab=statTab[["mTORnone"]],
+                enrichTab=hallmarkRes[["mTORnone"]],
+                topN=5, gmtFile=gmts[["H"]],
+                asterixList = corResult.sig,
+                anno=TRUE, i)
+```
+
+```{r fig_mTOR_H_asterix, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.height=hallmarkPlot[[1]][["height"]], fig.width=hallmarkPlot[[1]][["width"]]}
+#FIG# S13 B right
+grid.draw(hallmarkPlot[[1]]$plot)
+```
+
+## Ibrutinib response VS gene expression (within BTK group)
+
+Correlation test was performed to identify genes whose expressions are correlated with the sensitivity to the BTK inhibitor (ibrutinib) sensitivity within the BTK  group.
+
+### Correlation test
+
+Prepare drug sensitivity vector and gene expression matrix
+```{r}
+ddsCLL.BTK <- ddsCLL.norm[,ddsCLL.norm$group %in% "BTK"]
+viabBTK <- exprs(lpdCLL["D_002_4:5", ddsCLL.BTK$PatID])[1,]
+stopifnot(all(ddsCLL.BTK$PatID == colnames(viabBTK)))  
+```
+
+Filtering and applying variance stabilizing transformation on RNAseq data
+```{r}
+#only keep genes that have counts higher than 10 in any sample
+keep <- apply(assay(ddsCLL.BTK), 1, function(x) any(x >= 10)) 
+ddsCLL.BTK <- ddsCLL.BTK[keep,]
+dim(ddsCLL.BTK)
+```
+
+Association test using Pearson correlation
+```{r}
+corResult <- tibble(ID = rownames(ddsCLL.BTK), 
+                    symbol = rowData(ddsCLL.BTK)$symbol,
+                    coef = NA,
+                    p = NA)
+
+for (i in seq(nrow(corResult))) {
+  res <- cor.test(viabBTK, assay(ddsCLL.BTK[i,])[1,], method = "pearson")
+  corResult[i,c(3,4)] <- c(res$estimate[[1]], res$p.value)
+}
+
+corResult <- arrange(corResult, p) %>% mutate(p.adj = p.adjust(p, method="BH"))
+```
+
+### Enrichment heatmaps for BTK group with overlapped genes indicated
+
+Plot for C6 gene sets
+```{r}
+pCut = 0.05
+corResult.sig <- filter(corResult, p <= pCut)
+c6Plot <- plotSetHeatmap(geneTab=statTab[["BTKnone"]],
+                enrichTab=c6Res[["BTKnone"]],
+                topN=5, gmtFile=gmts[["C6"]],
+                #add asterix in front of the overlapped genes
+                asterixList = corResult.sig, 
+                anno=TRUE, i)
+```
+
+```{r fig_BTK_C6_asterix, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.height=c6Plot[[1]][["height"]], fig.width=c6Plot[[1]][["width"]]}
+#FIG# S12 left
+grid.draw(c6Plot[[1]]$plot)
+```
+
+Plot for Hallmark gene sets
+```{r}
+hallmarkPlot <- plotSetHeatmap(geneTab=statTab[["BTKnone"]],
+                enrichTab=hallmarkRes[["BTKnone"]],
+                topN=5, gmtFile=gmts[["H"]],
+                asterixList = corResult.sig,
+                anno=TRUE, i)
+```
+
+```{r fig_BTK_H_asterix, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.height=hallmarkPlot[[1]][["height"]], fig.width=hallmarkPlot[[1]][["width"]]}
+#FIG# S12 right
+grid.draw(hallmarkPlot[[1]]$plot)
+```
+
+### Selumetinib response VS gene expression (within MEK group)
+
+Correlation test was performed to identify genes whose expressions are correlated with the sensitivity to the MEK inhibitor (selumetinib) sensitivity within the MEK  group.
+
+### Correlation test
+
+Prepare drug sensitivity vector and gene expression matrix
+```{r}
+ddsCLL.MEK <- ddsCLL.norm[,ddsCLL.norm$group %in% "MEK"]
+viabMEK <- exprs(lpdCLL["D_012_4:5", ddsCLL.MEK$PatID])[1,]
+stopifnot(all(ddsCLL.MEK$PatID == colnames(viabMEK)))  
+```
+
+Filtering and applying variance stabilizing transformation on RNAseq data
+```{r}
+#only keep genes that have counts higher than 10 in any sample
+keep <- apply(assay(ddsCLL.MEK), 1, function(x) any(x >= 10)) 
+ddsCLL.MEK <- ddsCLL.MEK[keep,]
+dim(ddsCLL.MEK)
+```
+
+Association test using Pearson correlation
+```{r}
+corResult <- tibble(ID = rownames(ddsCLL.MEK), 
+                    symbol = rowData(ddsCLL.MEK)$symbol,
+                    coef = NA,
+                    p = NA)
+
+for (i in seq(nrow(corResult))) {
+  res <- cor.test(viabMEK, assay(ddsCLL.MEK[i,])[1,], method = "pearson")
+  corResult[i,c(3,4)] <- c(res$estimate[[1]], res$p.value)
+}
+
+corResult <- arrange(corResult, p) %>% mutate(p.adj = p.adjust(p, method="BH"))
+```
+Within MEK group, no gene expression was correlated with Selumetinib response
+
+### Enrichment heatmaps for MEK group
+
+Plot for C6 gene sets
+```{r}
+pCut = 0.05
+corResult.sig <- filter(corResult, p <= pCut)
+c6Plot <- plotSetHeatmap(geneTab=statTab[["MEKnone"]],
+                enrichTab=c6Res[["MEKnone"]],
+                topN=5, gmtFile=gmts[["C6"]],
+                anno=TRUE, i)
+```
+
+```{r fig_MEK_C6_asterix, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.height=c6Plot[[1]][["height"]], fig.width=c6Plot[[1]][["width"]]}
+#FIG# S13 A left
+grid.draw(c6Plot[[1]]$plot)
+```
+
+Plot for Hallmark gene sets
+```{r}
+hallmarkPlot <- plotSetHeatmap(geneTab=statTab[["MEKnone"]],
+                enrichTab=hallmarkRes[["MEKnone"]],
+                topN=5, gmtFile=gmts[["H"]],
+                asterixList = corResult.sig,
+                anno=TRUE, i)
+```
+
+```{r fig_MEK_H_asterix, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.height=hallmarkPlot[[1]][["height"]], fig.width=hallmarkPlot[[1]][["width"]]}
+#FIG# S13 A right
+grid.draw(hallmarkPlot[[1]]$plot)
+```
+
+
+```{r, include=!exists(".standalone"), eval=!exists(".standalone")}
+sessionInfo()
+```
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+rm(list=ls())
+```

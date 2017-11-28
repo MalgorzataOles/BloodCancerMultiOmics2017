@@ -1,0 +1,492 @@
+---
+title: "Part 2"
+output:
+  BiocStyle::html_document
+---
+
+```{r, message=FALSE, include=!exists(".standalone"), eval=!exists(".standalone")}
+library("BloodCancerMultiOmics2017")
+library("reshape2") # melt
+library("Biobase")
+library("dplyr")
+library("RColorBrewer")
+library("ggplot2")
+library("ggdendro")
+library("gtable")
+library("grid")
+library("Rtsne")
+library("ggbeeswarm")
+```
+
+```{r echo=FALSE}
+plotDir = ifelse(exists(".standalone"), "", "part02/")
+if(plotDir!="") if(!file.exists(plotDir)) dir.create(plotDir)
+```
+
+```{r}
+options(stringsAsFactors=FALSE)
+```
+
+# Drug-induced effects on cell viability
+
+Loading the data.
+```{r}
+data("lpdAll")
+```
+
+Here we show a relative cell viability (as compared to negative control) under treatment with 64 drugs at 5 concentrations steps each.
+
+Prepare data.
+```{r}
+#select drug screening data on patient samples
+lpd <- lpdAll[fData(lpdAll)$type == "viab" & pData(lpdAll)$Diagnosis != "hMNC",]
+viabTab <- exprs(lpd)
+viabTab <- viabTab[,complete.cases(t(viabTab))]
+viabTab <- reshape2::melt(viabTab)
+viabTab$Concentration <- fData(lpd)[viabTab$Var1,"subtype"]
+viabTab <- viabTab[viabTab$Concentration %in% c("1","2","3","4","5"),]
+viabTab$drugName <- fData(lpd)[viabTab$Var1,"name"]
+viabTab <- viabTab[order(viabTab$Concentration),]
+
+#order drug by mean viablitity
+drugOrder <- group_by(viabTab, drugName) %>%
+  summarise(meanViab = mean(value)) %>%
+  arrange(meanViab)
+viabTab$drugName <- factor(viabTab$drugName, levels = drugOrder$drugName)
+```
+
+Scatter plot for viabilities and using colors for concentrations.
+```{r ViabilityScatter_main, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=10, fig.height=5, warning=FALSE, out.width=560, out.height=280}
+#FIG# S1
+
+#Color for each concentration
+colorCode <- rev(brewer.pal(7,"Blues")[3:7])
+names(colorCode) <- unique(viabTab$Concentration)
+
+ggplot(viabTab, aes(x=drugName,y=value, color=Concentration)) +
+  geom_jitter(size=1, na.rm = TRUE, alpha=0.8, shape =16) +
+  scale_color_manual(values = colorCode) +
+  ylab("Viability") + ylim(c(0,1.2)) + xlab("") +
+  guides(color = guide_legend(override.aes = list(size=3,alpha=1),
+                              title = "concentration index")) +
+  theme_bw() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5),
+        legend.key = element_blank())
+```
+
+The plot shows high variability of effects between different drugs, from mostly lethal
+(left) to mostly neutral (right), concentration dependence of effects and high variability of effects of the same drug/concentration across patients.
+
+# Drug-drug correlation
+
+We compared response patterns produced by drugs using phenotype clustering within diseases (CLL, T-PLL and MCL) using Pearson correlation analysis. The results imply that the drug assays probe tumor cells’ specific dependencies on survival pathways.
+
+Loading the data.
+```{r}
+data("drpar", "patmeta", "drugs")
+```
+
+## Additional processing functions and parameters
+
+Function that return the subset of samples for a given diagnosis (or all samples if diag=NA).
+```{r}
+givePatientID4Diag = function(pts, diag=NA) {
+  pts = if(is.na(diag)) {
+    names(pts)
+  } else {
+    names(pts[patmeta[pts,"Diagnosis"]==diag])
+  }
+  pts
+}
+```
+
+Function that returns the viability matrix for given screen (for a given channel) for patients with given diagnosis.
+```{r}
+giveViabMatrix = function(diag, screen, chnnl) {
+  data = if(screen=="main") drpar
+          else print("Incorrect screen name.")
+  pid = colnames(data)
+  if(!is.na(diag))
+    pid = pid[patmeta[pid,"Diagnosis"]==diag]
+  
+  return(assayData(data)[[chnnl]][,pid])
+}
+```
+
+Function which reorders the clustered matrix based on computed singular value decomposition.
+```{r}
+callback = function(hc, mat){
+   sv = svd(t(mat))$v[,1]
+   dend = reorder(as.dendrogram(hc), wts = sv)
+   rv <- as.hclust(dend)
+   rv
+}
+```
+
+Color scales for the heat maps.
+```{r}
+palette.cor1 = c(rev(brewer.pal(9, "Blues"))[1:8],
+                 "white","white","white","white",brewer.pal(7, "Reds"))
+palette.cor2 = c(rev(brewer.pal(9, "Blues"))[1:8],
+                 "white","white","white","white",brewer.pal(7, "YlOrRd"))
+```
+
+## CLL/T-PLL
+
+Pearson correlation coefficients were calculated based on the mean drug response for the two lowest concentration steps in the main screen and across CLL and T-PLL samples separately. Square correlation matrices were plotted together, with CLL in lower triangle and T-PLL in upper triangle. The drugs in a heat map are ordered by hierarchical clustering applied to drug responses of CLL samples.
+
+```{r}
+main.cll.tpll = BloodCancerMultiOmics2017:::makeCorrHeatmap(
+  mt=giveViabMatrix(diag="CLL", screen="main", chnnl="viaraw.4_5"),
+  mt2=giveViabMatrix(diag="T-PLL", screen="main", chnnl="viaraw.4_5"),
+  colsc=palette.cor2, concNo="one")
+```
+
+```{r main.CLL.T-PLL, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=main.cll.tpll[["figure"]][["width"]], fig.height=main.cll.tpll[["figure"]][["height"]]}
+#FIG# 2A
+grid.draw(main.cll.tpll[["figure"]][["plot"]])
+```
+
+```{r main.cll.tpll.legend, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=main.cll.tpll[["legend"]][["width"]], fig.height=main.cll.tpll[["legend"]][["height"]], out.width=300, out.height=150}
+#FIG# 2A
+grid.draw(main.cll.tpll[["legend"]][["plot"]])
+```
+
+The major clusters in CLL include: kinase inhibitors targeting the B cell receptor, including idelalisib (PI3K), ibrutinib (BTK), duvelisib (PI3K), PRT062607 (SYK); inhibitors of redox signalling / reactive oxygen species (MIS−43, SD07, SD51); and BH3-mimetics (navitoclax, venetoclax).
+
+### Effect of drugs with similar target
+
+Here we compare the effect of drugs designed to target components of the same signalling pathway. 
+
+```{r}
+# select the data
+mtcll = as.data.frame( t( giveViabMatrix(diag="CLL"  , screen="main", chnnl="viaraw.4_5") ) )
+colnames(mtcll)  <- drugs[colnames(mtcll),"name"]
+
+# function which plots the scatter plot
+scatdr <-function(drug1, drug2, coldot, mt, min){
+
+  p <- ggplot(data=mt,  aes(mt[,drug1],  mt[,drug2] ) )  + labs(x = drug1, y = drug2) +
+        ylim(c(min, 1.35)) +  xlim(c(min, 1.35)) +
+        theme(
+           panel.background = element_blank(),
+           axis.text = element_text(size = 15),
+           axis.title = element_text(size = rel(1.5)),
+           axis.line.x = element_line(colour = "black", size = 0.5),
+           axis.line.y = element_line(colour = "black", size = 0.5),
+           panel.grid.major = element_blank(),
+           panel.grid.minor = element_blank() 
+           ) +
+       geom_point(size=3, col=coldot, alpha=0.8) +
+       geom_text( aes(1, min+0.1, label = paste0("Pearson-R = ", round(cor( mt[,drug1],  mt[,drug2] ), 2) )), size = 5) +
+       geom_smooth(method=lm) 
+
+  return(p)
+}
+```
+
+
+```{r cor_scatter, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), , fig.width=6, fig.height=4, warning=FALSE, out.width=420, out.height=280}
+#FIG# 2A
+scatdr("ibrutinib", "spebrutinib", coldot="deeppink1", mt=mtcll, min=0.4)
+scatdr("ibrutinib", "PRT062607 HCl", coldot="deeppink1", mt=mtcll, min=0.4)
+scatdr("ibrutinib", "idelalisib", coldot="deeppink1", mt=mtcll, min=0.4)
+scatdr("venetoclax", "navitoclax", coldot="goldenrod2", mt=mtcll, min=0.2)
+scatdr("SD51", "MIS-43", coldot="dodgerblue3", mt=mtcll, min=0.2)
+```
+
+
+## T-PLL
+
+Pearson correlation coefficients were calculated based on the mean drug response for the two lowest concentration steps in the main screen across T-PLL samples.
+
+```{r}
+main.tpll = BloodCancerMultiOmics2017:::makeCorrHeatmap(
+  mt=giveViabMatrix(diag="T-PLL", screen="main", chnnl="viaraw.4_5"),
+  colsc=palette.cor1, concNo="one")
+```
+
+```{r main.T-PLL, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=main.tpll[["figure"]][["width"]], fig.height=main.tpll[["figure"]][["height"]]}
+#FIG# S6 B
+grid.draw(main.tpll[["figure"]][["plot"]])
+```
+
+```{r main.tpll.legend, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=main.tpll[["legend"]][["width"]], fig.height=main.tpll[["legend"]][["height"]], out.width=300, out.height=150}
+#FIG# S6 B
+grid.draw(main.tpll[["legend"]][["plot"]])
+```
+
+Clusters of drugs with high correlation and anti-correlation are shown by red and blue squares, respectively.
+
+Inhibitors of redox signaling / reactive oxygen species (MIS-43, SD07, SD51) are clustering together. Otherwise, in T-PLL samples correlations are not well pronounced.
+
+## MCL
+
+Pearson correlation coefficients were calculated based on the mean drug response for the two lowest concentration steps in the main screen across MCL samples.
+
+```{r}
+main.mcl = BloodCancerMultiOmics2017:::makeCorrHeatmap(
+  mt=giveViabMatrix(diag="MCL", screen="main", chnnl="viaraw.4_5"),
+  colsc=palette.cor1, concNo="one")
+```
+
+```{r main.MCL, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=main.mcl[["figure"]][["width"]], fig.height=main.mcl[["figure"]][["height"]]}
+#FIG# S6 A
+grid.draw(main.mcl[["figure"]][["plot"]])
+```
+
+```{r main.mcl.legend, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=main.mcl[["legend"]][["width"]], fig.height=main.mcl[["legend"]][["height"]], out.width=300, out.height=150}
+#FIG# S6 A
+grid.draw(main.mcl[["legend"]][["plot"]])
+```
+
+Clusters of drugs with high correlation and anti-correlation are shown by red and blue squares, respectively.
+
+The major clusters include: kinase inhibitors of the B cell receptor, incl. idelalisib (PI3K), ibrutinib (BTK), duvelisib (PI3K), PRT062607 (SYK); inhibitors of redox signaling / reactive oxygen species (MIS-43, SD07, SD51) and BH3 mimetics (navitoclax, venetoclax).
+
+
+# Disease-specific drug response phenotypes
+
+Loading the data.
+```{r}
+data(list=c("lpdAll", "conctab", "patmeta"))
+```
+
+Preprocessing of drug screen data.
+```{r}
+#Select rows contain drug response data
+lpdSub <- lpdAll[fData(lpdAll)$type == "viab",]
+
+#Only use samples with complete values
+lpdSub <- lpdSub[,complete.cases(t(exprs(lpdSub)))]
+
+#Transformation of the values
+exprs(lpdSub) <- log(exprs(lpdSub))
+exprs(lpdSub) <- t(scale(t(exprs(lpdSub))))
+
+#annotation for drug ID
+anno <- sprintf("%s(%s)",fData(lpdSub)$name,fData(lpdSub)$subtype)
+names(anno) <- rownames(lpdSub)
+```
+
+Function to run t-SNE.
+```{r}
+tsneRun <- function(distMat,perplexity=10,theta=0,max_iter=5000, seed = 1000) {
+  set.seed(seed)
+  tsneRes <- Rtsne(distMat, perplexity = perplexity, theta = theta, 
+                   max_iter = max_iter, is_distance = TRUE, dims =2)
+  tsneRes <- tsneRes$Y
+  rownames(tsneRes) <- labels(distMat)
+  colnames(tsneRes) <- c("x","y")
+  tsneRes
+}
+```
+
+Setting color scheme for the plot.
+```{r}
+colDiagFill = c(`CLL` = "grey80",
+    `U-CLL` = "grey80",
+    `B-PLL`="grey80",
+    `T-PLL`="#cc5352",
+    `Sezary`="#cc5352",
+    `PTCL-NOS`="#cc5352",
+    `HCL`="#b29441",
+    `HCL-V`="mediumaquamarine",
+    `AML`="#addbaf",
+    `MCL`="#8e65ca",
+    `MZL`="#c95e9e",
+    `FL`="darkorchid4",
+    `LPL`="#6295cd",
+    `hMNC`="pink")
+
+colDiagBorder <- colDiagFill
+colDiagBorder["U-CLL"] <- "black"
+```
+
+Sample annotation.
+```{r}
+annoDiagNew <- function(patList, lpdObj = lpdSub) {
+  Diagnosis <- pData(lpdObj)[patList,c("Diagnosis","IGHV Uppsala U/M")]
+  DiagNew <- c()
+  
+  for (i in seq(1:nrow(Diagnosis))) {
+   if (Diagnosis[i,1] == "CLL") {
+      if (is.na(Diagnosis[i,2])) {
+        DiagNew <- c(DiagNew,"CLL")
+      } else if (Diagnosis[i,2] == "U") {
+        DiagNew <- c(DiagNew,sprintf("%s-%s",Diagnosis[i,2],Diagnosis[i,1]))
+      } else if (Diagnosis[i,2] == "M") {
+        DiagNew <- c(DiagNew,"CLL")
+      }
+    } else DiagNew <- c(DiagNew,Diagnosis[i,1])
+  }
+  DiagNew
+}
+```
+
+Calculate t-SNE and prepare data for plotting the result.
+```{r}
+#prepare distance matrix
+distLpd <- dist(t(exprs(lpdSub)))
+
+#run t-SNE
+plotTab <- data.frame(tsneRun(distLpd,perplexity=25, max_iter=5000, seed=338))
+
+#annotated patient sample
+plotTab$Diagnosis <- pData(lpdSub[,rownames(plotTab)])$Diagnosis
+plotTab$Diagnosis <- annoDiagNew(rownames(plotTab,lpdSub)) #consider IGHV status
+plotTab$Diagnosis <- factor(plotTab$Diagnosis,levels = names(colDiagFill))
+```
+
+```{r tSNE, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=10, fig.height=8, warning=FALSE, out.width=600, out.height=480}
+#FIG# 2 C
+p <- (ggplot(plotTab, aes(x=x,y=y)) +
+        geom_point(size=3, shape= 21, aes(col = Diagnosis, fill = Diagnosis)) +
+        theme_classic() +
+        theme(axis.ticks=element_line(color="black",size=0.5),
+              text=element_text(size=20),
+              axis.line.x = element_line(color="black",size=0.5),
+              axis.line.y = element_line(color="black",size=0.5),
+              legend.position="right") +
+        scale_fill_manual(values = colDiagFill) +
+        scale_color_manual(values = colDiagBorder) +
+        xlab("Component 1") + ylab("Component 2")) +
+  coord_cartesian(xlim = c(-20,20),ylim=c(-20,20))
+
+print(p)
+```
+
+## Example: dose-response curves
+
+Here we show dose-response curve for selected drugs and patients.
+
+First, change concentration index into real concentrations according to `conctab`.
+```{r}
+lpdPlot <- lpdAll[fData(lpdAll)$type == "viab",]
+concList <- c()
+for (drugID in rownames(fData(lpdPlot))) {
+  concIndex <- as.character(fData(lpdPlot)[drugID,"subtype"])
+  concSplit <- unlist(strsplit(as.character(concIndex),":"))
+  ID <- substr(drugID,1,5)
+  if (length(concSplit) == 1) {
+    realConc <- conctab[ID,as.integer(concSplit)]
+    concList <- c(concList,realConc)
+  } else {
+    realConc <- sprintf("%s:%s",
+                        conctab[ID,as.integer(concSplit[1])],
+                        conctab[ID,as.integer(concSplit[2])])
+    concList <- c(concList,realConc)
+  }
+}
+
+fData(lpdPlot)$concValue <- concList
+lpdPlot <- lpdPlot[,complete.cases(t(exprs(lpdPlot)))]
+```
+
+Select drugs and samples.
+```{r}
+patDiag <- c("CLL","T-PLL","HCL","MCL")
+drugID <- c("D_012_5","D_017_4","D_039_3","D_040_5","D_081_4","D_083_5")
+
+lpdBee <- lpdPlot[drugID,pData(lpdPlot)$Diagnosis %in% patDiag]
+```
+
+Prepare the data for plot
+```{r}
+lpdCurve <-
+  lpdPlot[fData(lpdPlot)$name %in% fData(lpdBee)$name,
+          pData(lpdPlot)$Diagnosis %in% patDiag]
+lpdCurve <- lpdCurve[fData(lpdCurve)$subtype %in% seq(1,5),]
+dataCurve <- data.frame(exprs(lpdCurve))
+dataCurve <- cbind(dataCurve,fData(lpdCurve)[,c("name","concValue")])
+tabCurve <- melt(dataCurve,
+                 id.vars = c("name","concValue"), variable.name = "patID")
+tabCurve$Diagnosis <- factor(pData(lpdCurve[,tabCurve$patID])$Diagnosis,
+                             levels = patDiag)
+tabCurve$value <- tabCurve$value
+tabCurve$concValue <- as.numeric(tabCurve$concValue)
+
+# set order
+tabCurve$name <- factor(tabCurve$name, levels = fData(lpdBee)$name)
+
+#calculate the mean and mse for each drug+cencentration in different disease
+tabGroup <- group_by(tabCurve,name,concValue,Diagnosis)
+tabSum <- summarise(tabGroup,meanViab = mean(value))
+```
+
+
+Finally, plot dose-response curve for each selected drug.
+```{r viabilityCurve, fig.path=plotDir, dev=c("png", "pdf"), fig.width=4, fig.height=3}
+#FIG# 2 C
+tconc = expression("Concentration [" * mu * "M]")
+fmt_dcimals <- function(decimals=0){
+   # return a function responpsible for formatting the 
+   # axis labels with a given number of decimals 
+   function(x) as.character(round(x,decimals))
+}
+
+for (drugName in unique(tabSum$name)) {
+  tabDrug <- filter(tabSum, name == drugName)
+  p <- (ggplot(data=tabDrug, aes(x=concValue,y=meanViab, col=Diagnosis)) +
+          geom_line() + geom_point(pch=16, size=4) +
+          scale_color_manual(values = colDiagFill[patDiag])
+        + theme_classic() +
+          theme(panel.border=element_blank(),
+                axis.line.x=element_line(size=0.5,
+                                         linetype="solid", colour="black"),
+                axis.line.y = element_line(size = 0.5,
+                                           linetype="solid", colour="black"),
+                legend.position="none",
+                plot.title = element_text(hjust = 0.5, size=20),
+                axis.text = element_text(size=15),
+                axis.title = element_text(size=20)) +
+          ylab("Viability") + xlab(tconc) + ggtitle(drugName) +
+          scale_x_log10(labels=fmt_dcimals(2)) +
+          scale_y_continuous(limits = c(0,1.3), breaks = seq(0,1.3,0.2)))
+  plot(p)
+}
+```
+
+## Example: drug effects as bee swarms
+
+```{r viabilityBee, fig.path=plotDir, dev=c("png", "pdf"), fig.width=5, fig.height=10, warning=FALSE}
+#FIG# 2 D
+lpdDiag <- lpdAll[,pData(lpdAll)$Diagnosis %in% c("CLL", "MCL", "HCL", "T-PLL")]
+dr <- c("D_012_5", "D_083_5", "D_081_3", "D_040_4", "D_039_3")
+
+m <- data.frame(t(exprs(lpdDiag)[dr, ]), diag=pData(lpdDiag)$Diagnosis)
+m <- melt(m)
+m$lable <- 1
+for (i in 1:nrow(m )) {
+  m[i, "lable"] <- giveDrugLabel(as.character(m[i, "variable"]), conctab, drugs)
+} 
+
+  
+ggplot( m, aes(diag, value, color=factor(diag) ) ) +
+  ylim(0,1.3) + ylab("Viability") + 
+  xlab("") +
+  geom_boxplot(outlier.shape = NA) +
+  geom_beeswarm(cex=1.4, size=1.4,alpha=0.5, color="grey80") +
+  scale_color_manual("diagnosis", values=c(colDiagFill["CLL"], colDiagFill["MCL"], 
+                                           colDiagFill["HCL"], colDiagFill["T-PLL"])) +
+  theme_bw() +
+  theme(legend.position="right") +
+  theme(
+    panel.background =  element_blank(), 
+    panel.grid.minor.x =  element_blank(),
+    axis.text = element_text(size=15),
+    axis.title = element_text(size=15),
+    strip.text = element_text(size=15)
+  ) +
+  facet_wrap(~ lable, ncol=1) 
+```
+
+
+```{r, include=!exists(".standalone"), eval=!exists(".standalone")}
+sessionInfo()
+```
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+rm(list=ls())
+```

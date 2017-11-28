@@ -1,0 +1,583 @@
+---
+title: "Part 4"
+output:
+  BiocStyle::html_document
+---
+
+```{r, message=FALSE, include=!exists(".standalone"), eval=!exists(".standalone")}
+library("BloodCancerMultiOmics2017")
+library("Biobase")
+library("ggplot2")
+library("grid")
+
+library("monogeneaGM") # colorBar
+```
+
+```{r echo=FALSE}
+plotDir = ifelse(exists(".standalone"), "", "part04/")
+if(plotDir!="") if(!file.exists(plotDir)) dir.create(plotDir)
+```
+
+```{r}
+options(stringsAsFactors=FALSE)
+```
+
+# Single associations of drug response with gene mutation or type of disease (IGHV included)
+
+We univariantly tested different features (explained in detail below) for their associations with the drug response using Student t-test (two-sided, with equal variance). Each concentration was tested separately. The minimal size of the compared groups was set to 3. p-values were adjusted for multiple testing by applying the Benjamini-Hochberg procedure. Adjusted p-values were then used for setting the significance threshold.
+
+Loading the data.
+```{r}
+data(list=c("drpar", "patmeta", "drugs", "mutCOM", "conctab"))
+```
+
+## Function which test associations of interest
+
+Below is a general function with which all the tests for single associations were performed.
+```{r}
+testFactors = function(msrmnt, factors, test="student", batch=NA) {
+  
+  # cut out the data
+  tmp = colnames(factors)
+  factors = data.frame(factors[rownames(msrmnt),], check.names=FALSE)
+  colnames(factors) = tmp
+  for(cidx in 1:ncol(factors))
+    factors[,cidx] = factor(factors[,cidx], levels=c(0,1))
+  
+  # calculate the group size
+  groupSizes = do.call(rbind, lapply(factors, function(tf) {
+    tmp = table(tf)
+    data.frame(n.0=tmp["0"], n.1=tmp["1"])
+  }))
+  
+  # remove the factors with less then 2 cases per group
+  factors = factors[,names(which(apply(groupSizes, 1,
+                                       function(i) all(i>2)))), drop=FALSE]
+  
+  # calculate the effect
+  effect = do.call(rbind, lapply(colnames(factors), function(tf) {
+    tmp = aggregate(msrmnt ~ fac, data=data.frame(fac=factors[,tf]), mean)
+    rownames(tmp) = paste("mean", tmp$fac, sep=".")
+    tmp = t(tmp[2:ncol(tmp)])
+    data.frame(TestFac=tf,
+               DrugID=rownames(tmp),
+               FacDr=paste(tf, rownames(tmp), sep="."),
+               n.0=groupSizes[tf,"n.0"], n.1=groupSizes[tf,"n.1"],
+               tmp, WM=tmp[,"mean.0"]-tmp[,"mean.1"])
+  }))
+  
+  # do the test
+  T = if(test=="student") {
+    do.call(rbind, lapply(colnames(factors), function(tf) {
+      tmp = do.call(rbind, lapply(colnames(msrmnt), function(dr) {
+        res = t.test(msrmnt[,dr] ~ factors[,tf], var.equal=TRUE)
+        data.frame(DrugID=dr, TestFac=tf,
+                   pval=res$p.value, t=res$statistic,
+                   conf1=res$conf.int[1], conf2=res$conf.int[2])
+      }))
+      tmp
+    }))
+  } else if(test=="anova") {
+    do.call(rbind, lapply(colnames(factors), function(tf) {
+      tmp = do.call(rbind, lapply(colnames(msrmnt), function(dr) {
+        # make sure that the order in batch is the same as in msrmnt
+        stopifnot(identical(rownames(msrmnt), names(batch)))
+        res = anova(lm(msrmnt[,dr] ~ factors[,tf]+batch))
+        data.frame(DrugID=dr, TestFac=tf, pval=res$`Pr(>F)`[1],
+                   f=res$`F value`[1], meanSq1=res$`Mean Sq`[1],
+                   meanSq2=res$`Mean Sq`[2])
+      }))
+      tmp
+    }))
+  } else {
+    NA
+  }
+  
+  enhanceObject = function(obj) {
+    # give nice drug names
+    obj$Drug = giveDrugLabel(obj$DrugID, conctab, drugs)
+    # combine the testfac and drug id
+    obj$FacDr = paste(obj$TestFac, obj$DrugID, sep=".")
+    # select just the drug name
+    obj$DrugID2 = substring(obj$DrugID, 1, 5)
+    obj
+  }
+  
+  list(effect=effect, test=enhanceObject(T))
+}
+```
+
+## Associations of *ex vivo* drug responses with genomic features in CLL
+
+### Prepare objects for testing
+
+```{r}
+## VIABILITIES
+## list of matrices; one matrix per screen/day
+## each matrix contains all CLL patients
+measurements=list()
+
+### Main Screen
+patM = colnames(drpar)[which(patmeta[colnames(drpar),"Diagnosis"]=="CLL")]
+measurements[["main"]] =
+  do.call(cbind,
+          lapply(list("viaraw.1","viaraw.2","viaraw.3","viaraw.4","viaraw.5"),
+                 function(viac) {
+  tmp = t(assayData(drpar)[[viac]][,patM])
+  colnames(tmp) = paste(colnames(tmp), conctab[colnames(tmp),
+            paste0("c",substring(viac,8,8))], sep="-")
+  tmp
+}))
+
+pats = sort(unique(patM))
+
+## TESTING FACTORS
+testingFactors = list()
+# ighv
+ighv = setNames(patmeta[pats, "IGHV"], nm=pats)
+# mutations
+tmp = cbind(IGHV=ifelse(ighv=="U",1,0), assayData(mutCOM)$binary[pats,])
+testingFactors[["mutation"]] = tmp[,-grep("Chromothripsis", colnames(tmp))]
+
+# BATCHES
+j = which(pData(drpar)[patM, "ExpDate"] < as.Date("2014-01-01"))
+k = which(pData(drpar)[patM, "ExpDate"] < as.Date("2014-08-01") &
+            pData(drpar)[patM, "ExpDate"] > as.Date("2014-01-01"))
+l = which(pData(drpar)[patM, "ExpDate"] > as.Date("2014-08-01"))
+
+measurements[["main"]] = measurements[["main"]][c(patM[j], patM[k], patM[l]),]
+batchvec = factor(
+  setNames(c(rep(1, length(j)), rep(2, length(k)), rep(3, length(l))),
+           nm=c(patM[j], patM[k], patM[l])))
+
+# LABELS FOR GROUPING
+beelabs = t(sapply(colnames(testingFactors[["mutation"]]), function(fac) {
+  if(fac=="IGHV")
+    c(`0`="IGHV mut", `1`="IGHV unmut")
+  else if(grepl("[[:upper:]]",fac)) # if all letters are uppercase
+    c(`0`=paste(fac, "wt"),`1`=paste(fac, "mt"))
+  else
+    c(`0`="wt",`1`=fac)
+}))
+```
+
+
+### Assesment of importance of batch effect
+
+We first used the approach explained in the introduction section to test for associations between drug viability assay results and genomic features, which comprised: somatic mutations (aggregated at the gene level), copy number aberrations and IGHV status. 
+
+```{r}
+allresultsT = testFactors(msrmnt=measurements[["main"]],
+                          factors=testingFactors[["mutation"]],
+                          test="student", batch=NA)
+
+resultsT = allresultsT$test
+resultsT$adj.pval = p.adjust(resultsT$pval, method="BH")
+```
+
+However, we ware aware that the main screen was performed in three groups of batches over a time period of 1.5 years; these comprise, respectively, the samples screened in 2013, in 2014 before August and in 2014 in August and September. Therefore, to control for confounding by the different batch groups we repeated the drug-feature association tests using batch group as a blocking factor and a two-way ANOVA test.
+
+```{r}
+allresultsA = testFactors(msrmnt=measurements[["main"]],
+                          factors=testingFactors[["mutation"]],
+                          test="anova", batch=batchvec)
+
+resultsA = allresultsA$test
+resultsA$adj.pval = p.adjust(resultsA$pval, method="BH")
+```
+
+We then compared the p-values from both tests. 
+
+```{r batchEffect, results='asis', echo=FALSE, fig.path=plotDir, dev=c('png','pdf'), fig.height=20, fig.width=14}
+#FIG# S30
+xylim = 1e-8
+tmp = merge(resultsT[,c("FacDr","Drug","DrugID","DrugID2","FacDr","pval")],
+            resultsA[,c("FacDr","pval")], by.x="FacDr", by.y="FacDr")
+tmp$DrugName = toCaps(drugs[tmp$DrugID2, "name"])
+tmp$Shape = ifelse(tmp$pval.x < xylim | tmp$pval.y < xylim, "tri", "dot")
+tmp$pval.cens.x = ifelse(tmp$pval.x < xylim, xylim, tmp$pval.x)
+tmp$pval.cens.y = ifelse(tmp$pval.y < xylim, xylim, tmp$pval.y)
+
+ggplot(tmp) + geom_abline(intercept=0, slope=1, colour="hotpink") +
+  geom_point(aes(x=pval.cens.x, y=pval.cens.y, shape=Shape), alpha=0.6) +
+  facet_wrap(~DrugName, ncol=7) +
+  scale_x_log10(labels=scientific_10, limits=c(xylim,1)) +
+  scale_y_log10(labels=scientific_10, limits=c(xylim,1)) +
+  theme_bw() + coord_fixed() + xlab("P-value from Student t-test") +
+  ylab("P-value from ANOVA (including batch group factor)") +
+  theme(axis.text.x=element_text(angle=0, hjust=1, vjust=0.5, size=rel(1.5)),
+        axis.title=element_text(size=18)) + guides(shape=FALSE)
+```
+
+Only one drug, bortezomib, showed discrepant p-values, and exploration of its data suggested that it lost its activity during storage. The data for this drug and NSC 74859 were discarded from further analysis.
+
+```{r}
+badrugs = c("D_008", "D_025")
+
+measurements = lapply(measurements, function(drres) {
+  drres[,-grep(paste(badrugs, collapse="|"), colnames(drres))]
+})
+```
+
+For all remaining associations, testing with and without batch as a blocking factor yielded equivalent results. Therefore, all reported p-values for associations come from the t-tests without using blocking for batch effects.
+
+
+### Associations of drug response with mutations in CLL
+
+We tested for associations between drug viability assay results and genomic features (43 features for the pilot screen and 63 for the main screen). p-values were adjusted for multiple testing by applying the Benjamini-Hochberg procedure, separately for the main screen and for each of the two incubation times of the pilot screen.
+
+```{r}
+allresults1 = lapply(measurements, function(measurement) {
+  testFactors(msrmnt=measurement, factors=testingFactors[["mutation"]],
+              test="student", batch=NA)
+})
+
+effects1 = lapply(allresults1, function(res) res[["effect"]])
+results1 = lapply(allresults1, function(res) res[["test"]])
+
+results1 = lapply(results1, function(res) {
+  res$adj.pval = p.adjust(res$pval, method="BH")
+  res
+})
+```
+
+```{r}
+measurements1 = measurements
+testingFactors1 = testingFactors
+beelabs1 = beelabs
+```
+
+
+### Volcano plots: summary of the results
+
+In this section we summarize all significant associations for a given mutation in a form of volcano plots. The pink color spectrum indicates a resistant phenotype and the blue color spectrum a sensitive phenotype in the presence of the tested mutation. FDR of 10 % was used.
+
+```{r echo=FALSE}
+## CREATE THE PLOTS
+plotmp01 = BloodCancerMultiOmics2017:::run.ggvolcGr2(results=results1, effects=effects1,
+                                screen="main", mts="IGHV", fdr=0.1, maxX=0.75,
+                                maxY=NA, expY=0.05, hghBox=0.15, axisMarkY=4,
+                                breaksX=c(-0.75,-0.5,-0.25,0,0.25,0.5,0.75),
+                                arrowLength=0.5, Xhang=0.3, minConc=3)
+
+plotmp02 = BloodCancerMultiOmics2017:::run.ggvolcGr2(results=results1, effects=effects1,
+                                screen="main", mts="trisomy12", fdr=0.1,
+                                maxX=0.75, maxY=NA, expY=0.05, hghBox=0.15,
+                                axisMarkY=4,
+                                breaksX=c(-0.75,-0.5,-0.25,0,0.25,0.5,0.75),
+                                arrowLength=0.5, Xhang=0.3, minConc=1)
+```
+
+IGHV.
+```{r volc_IGHV, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=plotmp01$IGHV$figure$width, fig.height=plotmp01$IGHV$figure$height}
+#FIG# 4B
+grid.draw(plotmp01$IGHV$figure$plot)
+```
+
+```{r volc_IGHV_legend, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=plotmp01$IGHV$legend$width, fig.height=plotmp01$IGHV$legend$height, out.height=300, out.width=150}
+#FIG# 4B legend
+grid.draw(plotmp01$IGHV$legend$plot)
+```
+
+Trisomy 12.
+```{r volc_trisomy12, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=plotmp02$trisomy12$figure$width, fig.height=plotmp02$trisomy12$figure$height}
+#FIG# 4C
+grid.draw(plotmp02$trisomy12$figure$plot)
+```
+
+```{r volc_trisomy12_legend, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=plotmp02$trisomy12$legend$width, fig.height=plotmp02$trisomy12$legend$height, out.height=300, out.width=150}
+#FIG# 4C legend
+grid.draw(plotmp02$trisomy12$legend$plot)
+```
+
+## Associations of drug responses with genomic features in CLL independently of IGHV status
+
+To assess associations between drug effects and genomic features independently of IGHV status, we performed the analyses separately within U-CLL and M-CLL samples. These analyses were only performed if 3 or more samples carried the analyzed feature within both M-CLL and U-CLL subgroups.
+
+Find out which factors we will be testing (with threshold >2 patients in each of the four groups).
+```{r}
+fac2test = lapply(measurements, function(mea) {
+  tf = testingFactors[["mutation"]][rownames(mea),]
+  names(which(apply(tf,2,function(i) {
+    if(length(table(i,tf[,1]))!=4)
+      FALSE
+    else
+      all(table(i,tf[,1])>2)
+  })))
+})
+```
+
+Construct the table with drug responses.
+```{r}
+measurements2 = setNames(lapply(names(measurements), function(mea) {
+  ig = testingFactors[["mutation"]][rownames(measurements[[mea]]),"IGHV"]
+  patU = names(which(ig==1))
+  patM = names(which(ig==0))
+  list(U=measurements[[mea]][patU,], M=measurements[[mea]][patM,])
+}), nm=names(measurements))
+```
+
+Testing.
+```{r}
+allresults2 = setNames(lapply(names(measurements2), function(mea) {
+  list(U = testFactors(msrmnt=measurements2[[mea]]$U,
+                       factors=testingFactors[["mutation"]][
+                         rownames(measurements2[[mea]]$U),fac2test[[mea]]]),
+  M = testFactors(msrmnt=measurements2[[mea]]$M,
+                  factors=testingFactors[["mutation"]][
+                    rownames(measurements2[[mea]]$M),fac2test[[mea]]]))
+}), nm=names(measurements2))
+```
+
+Divide results to list of effects and list of results.
+```{r}
+results2 = lapply(allresults2, function(allres) {
+  list(U=allres[["U"]][["test"]], M=allres[["M"]][["test"]])
+})
+
+effects2 = lapply(allresults2, function(allres) {
+  list(U=allres[["U"]][["effect"]], M=allres[["M"]][["effect"]])
+})
+```
+
+p-values were adjusted for multiple testing by applying the Benjamini-Hochberg procedure to joined results for M-CLL and U-CLL for each screen separately.
+```{r}
+results2 = lapply(results2, function(res) {
+  tmp = p.adjust(c(res$U$pval,res$M$pval), method="BH")
+  l = length(tmp)
+  res$U$adj.pval = tmp[1:(l/2)]
+  res$M$adj.pval = tmp[(l/2+1):l]
+  res
+})
+```
+
+```{r}
+testingFactors2 = testingFactors
+beelabs2 = beelabs
+```
+
+As an example we show the summary of the results for trisomy 12.
+```{r echo=FALSE}
+## CREATE THE PLOTS
+plotmp03 = BloodCancerMultiOmics2017:::run.ggvolcGr2(results=results2$main, effects=effects2$main,
+                                screen="U", mts="trisomy12", fdr=0.1,
+                                maxX=0.75, maxY=7, expY=0.05, hghBox=NA,
+                                axisMarkY=4,
+                                breaksX=c(-0.75,-0.5,-0.25,0,0.25,0.5,0.75),
+                                arrowLength=0.5, Xhang=0.3, minConc=1,
+                                fixedHght=6)
+
+plotmp04 = BloodCancerMultiOmics2017:::run.ggvolcGr2(results=results2$main, effects=effects2$main,
+                                screen="M", mts="trisomy12", fdr=0.1,
+                                maxX=0.75, maxY=7, expY=0.05, hghBox=NA,
+                                axisMarkY=4,
+                                breaksX=c(-0.75,-0.5,-0.25,0,0.25,0.5,0.75),
+                                arrowLength=0.5, Xhang=0.3, minConc=1,
+                                fixedHght=6)
+```
+
+Trisomy 12 - IGHV unmutated.
+```{r volc_trisomy12_U, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=plotmp03$trisomy12$figure$width, fig.height=plotmp03$trisomy12$figure$height}
+#FIG# S21 right
+grid.draw(plotmp03$trisomy12$figure$plot)
+```
+
+```{r volc_trisomy12_U_legend, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=plotmp03$trisomy12$legend$width, fig.height=plotmp03$trisomy12$legend$height, out.height=300, out.width=150}
+#FIG# S21 right legend
+grid.draw(plotmp03$trisomy12$legend$plot)
+```
+
+Trisomy 12 - IGHV mutated.
+```{r volc_trisomy12_M, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=plotmp04$trisomy12$figure$width, fig.height=plotmp04$trisomy12$figure$height}
+#FIG# S21 left
+grid.draw(plotmp04$trisomy12$figure$plot)
+```
+
+```{r volc_trisomy12_M_legend, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=plotmp04$trisomy12$legend$width, fig.height=plotmp04$trisomy12$legend$height, out.height=300, out.width=150}
+#FIG# S21 left legend
+grid.draw(plotmp04$trisomy12$legend$plot)
+```
+
+
+## Drug response dependance on cell origin of disease
+
+We tested for drug sensitivity differences between different disease entities. The largest group, the CLL samples, was used as the baseline for these comparisons. Here, we compared drug sensitivities across studied diseases entities against all CLL samples Only groups with 3 or more data points were considered (T-PLL, AML, MZL, MCL, B-PLL, HCL, LPL and healthy donor cells hMNC). p-values were adjusted for multiple testing by applying the Benjamini-Hochberg procedure to results for each disease entity separately.
+
+Here we prepare the data for testing the drug response dependence on cell origin of disease.
+```{r}
+## VIABILITIES
+### main
+pats = colnames(drpar)
+# make the big matrix with viabilities
+measureTMP = do.call(cbind,
+                     lapply(list("viaraw.1","viaraw.2","viaraw.3",
+                                 "viaraw.4","viaraw.5"), function(viac) {
+  tmp = t(assayData(drpar)[[viac]][,pats])
+  colnames(tmp) = paste(colnames(tmp),
+                        conctab[colnames(tmp),
+                                paste0("c",substring(viac,8,8))], sep="-")
+  tmp
+}))
+
+# select diagnosis to work on
+pats4diag = tapply(pats, patmeta[pats,"Diagnosis"], function(i) i)
+
+diags = names(which(table(patmeta[pats,"Diagnosis"])>2))
+diags = diags[-which(diags=="CLL")]
+# there will be two lists: one with CLL and the second with other diagnosis
+# (first one is passed as argument to the createObjects function)
+pats4diag2 = pats4diag[diags]
+
+# function that creates testingFactors, measurements and beelabs
+createObjects = function(pats4diag1, beefix="") {
+  
+  measurements=list()
+  testingFactors=list()
+  # make the list for testing
+  for(m in names(pats4diag1)) {
+    for(n in names(pats4diag2)) {
+      p1 = pats4diag1[[m]]
+      p2 = pats4diag2[[n]]
+      measurements[[paste(m,n,sep=".")]] = measureTMP[c(p1, p2),]
+      testingFactors[[paste(m,n,sep=".")]] = setNames(c(rep(0,length(p1)),
+                                                        rep(1,length(p2))),
+                                                      nm=c(p1,p2))
+    }
+  }
+  
+  # reformat testingFactors to the df
+  pats=sort(unique(c(unlist(pats4diag1),unlist(pats4diag2))))
+  testingFactors = as.data.frame(
+    do.call(cbind, lapply(testingFactors, function(tf) {
+    setNames(tf[pats], nm=pats)
+  })))
+  
+  # Labels for beeswarms
+  beelabs = t(sapply(colnames(testingFactors), function(fac) {
+    tmp = unlist(strsplit(fac, ".", fixed=TRUE))
+    c(`0`=paste0(tmp[1], beefix),`1`=tmp[2])
+  }))
+  
+  return(list(msrmts=measurements, tf=testingFactors, bl=beelabs))
+}
+
+# all CLL together
+res = createObjects(pats4diag1=pats4diag["CLL"])
+measurements3 = res$msrmts
+testingFactors3 = res$tf
+beelabs3 = res$bl
+```
+
+Testing.
+```{r, results='hide'}
+allresults3 = setNames(lapply(names(measurements3), function(mea) {
+  tmp = data.frame(testingFactors3[,mea])
+  colnames(tmp) = mea
+  rownames(tmp) = rownames(testingFactors3)
+  testFactors(msrmnt=measurements3[[mea]], factors=tmp)
+}), nm=names(measurements3))
+```
+
+Divide results to list of effects and list of t-test results.
+```{r}
+results3 = lapply(allresults3, function(res) res[["test"]])
+effects3 = lapply(allresults3, function(res) res[["effect"]])
+```
+
+Adjust p-values.
+```{r}
+results3 = lapply(results3, function(res) {
+  res$adj.pval = p.adjust(res$pval, method="BH")
+  res
+})
+```
+
+We summarize the result as a heat map.
+```{r echo=FALSE}
+tmpheat = BloodCancerMultiOmics2017:::ggheat(results3, effects3)
+```
+
+```{r cll.diag, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=tmpheat$figure$width, fig.height=tmpheat$figure$height}
+#FIG# S7 plot
+grid.draw(tmpheat$figure$plot)
+```
+
+```{r cll.diag.legend, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=tmpheat$legend$width, fig.height=tmpheat$legend$height}
+#FIG# S7 legend
+grid.draw(tmpheat$legend$plot)
+```
+
+# Effect of mutation on drug response - examples
+
+```{r}
+data(drugs, lpdAll, mutCOM, conctab)
+```
+
+```{r}
+lpdCLL = lpdAll[ , lpdAll$Diagnosis %in% "CLL"]
+```
+
+Here we highlight the selection of mutation-drug response associations within the different disease subtypes.
+
+```{r beesMutMain, fig.path=plotDir, dev=c("png", "pdf"), fig.width=8, fig.height=10, out.width=280, out.height=350}
+#FIG# 4D
+BloodCancerMultiOmics2017:::beeF(diag="CLL", "D_010_2", "TP53", cs=T, y1=0, y2=1.2, custc=T)
+BloodCancerMultiOmics2017:::beeF(diag="CLL", "D_006_3", "TP53", cs=T,y1=0, y2=1.2, custc=T)
+BloodCancerMultiOmics2017:::beeF(diag="CLL", "D_063_5", "CREBBP", cs=T, y1=0, y2=1.2, custc=T)
+BloodCancerMultiOmics2017:::beeF(diag="CLL", "D_056_5", "PRPF8", cs=T, y1=0, y2=1.2, custc=T)
+BloodCancerMultiOmics2017:::beeF(diag="CLL", "D_012_5", "trisomy12", cs=F,y1=0.6, y2=1.2, custc=T)
+```
+
+```{r beesMutSupp, fig.path=plotDir, fig.width = 18, fig.height = 20, dev = c("png", "pdf")}
+#FIG# S17
+par(mfrow = c(3,4), mar=c(5,4.5,5,2))
+
+BloodCancerMultiOmics2017:::beeF(diag="CLL", drug="D_159_3", mut="TP53", cs=T, y1=0, y2=1.2, custc=T)
+BloodCancerMultiOmics2017:::beeF(diag="CLL", "D_006_2", "del17p13", cs=T, y1=0, y2=1.2, custc=T)
+BloodCancerMultiOmics2017:::beeF(diag="CLL", "D_159_3", "del17p13", cs=T, y1=0, y2=1.2, custc=T)
+BloodCancerMultiOmics2017:::beeF(diag="CLL", "D_010_2", "del17p13", cs=T, y1=0, y2=1.2, custc=T)
+BloodCancerMultiOmics2017:::beeF(diag="MCL", "D_006_2", "TP53", cs=T,  y1=0, y2=1.2, custc=T)
+BloodCancerMultiOmics2017:::beeF(diag="MCL", "D_010_2", "TP53", cs=T,  y1=0, y2=1.2, custc=T)
+BloodCancerMultiOmics2017:::beeF(diag=c("HCL", "HCL-V"), "D_012_3", "BRAF", cs=T, y1=0, y2=1.2,
+            custc=F)
+BloodCancerMultiOmics2017:::beeF(diag=c("HCL", "HCL-V"), "D_083_4", "BRAF", cs=T, y1=0, y2=1.2,
+            custc=F)
+BloodCancerMultiOmics2017:::beeF(diag="CLL", "D_012_5", "KRAS", cs=T, y1=0.6, y2=1.2, custc=T)
+BloodCancerMultiOmics2017:::beeF(diag="CLL", "D_083_5", "KRAS", cs=T, y1=0.6, y2=1.45, custc=T)
+BloodCancerMultiOmics2017:::beeF(diag="CLL", "D_081_4", "UMODL1", cs=T,  y1=0, y2=1.2, custc=T)
+BloodCancerMultiOmics2017:::beeF(diag="CLL", "D_001_4", "UMODL1", cs=T,  y1=0, y2=1.2, custc=T)
+```
+
+```{r colorbar, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=2, fig.height=4, out.height=200, out.width=100}
+colorBar(colorRampPalette(c('coral1','blue4'))(100), min=0, max = 1,
+         ticks=c(0,0.5,1))
+```
+
+
+Bee swarms for pretreatment.
+```{r bee-pretreatment, fig.path=plotDir, fig.width=15, fig.height=10, dev = c("png", "pdf")}
+#FIG# S18
+par(mfrow = c(2,3), mar=c(5,4.5,2,2)) 
+
+BloodCancerMultiOmics2017:::beePretreatment(lpdCLL, "D_006_1:5", y1=0.2, y2=1.3, fac="TP53",
+                       val=c(0,1), name="Fludarabine")
+BloodCancerMultiOmics2017:::beePretreatment(lpdCLL, "D_006_1:5", y1=0.2, y2=1.3, fac="TP53",
+                       val=c(0),   name="p53 wt:  Fludarabine")
+BloodCancerMultiOmics2017:::beePretreatment(lpdCLL, "D_006_1:5", y1=0.2, y2=1.3, fac="TP53",
+                       val=c(1),   name="p53 mut: Fludarabine")
+
+BloodCancerMultiOmics2017:::beePretreatment(lpdCLL, "D_002_4:5", y1=0.4, y2=1.3,
+                       fac="IGHV Uppsala U/M", val=c(0,1), name="Ibrutinib")
+BloodCancerMultiOmics2017:::beePretreatment(lpdCLL, "D_002_4:5", y1=0.4, y2=1.3,
+                       fac="IGHV Uppsala U/M", val=c(0), name="U-CLL: Ibrutinib")
+BloodCancerMultiOmics2017:::beePretreatment(lpdCLL, "D_002_4:5", y1=0.4, y2=1.3,
+                       fac="IGHV Uppsala U/M", val=c(1), name="M-CLL: Ibrutinib")
+```
+
+```{r, include=!exists(".standalone"), eval=!exists(".standalone")}
+sessionInfo()
+```
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+rm(list=ls())
+```

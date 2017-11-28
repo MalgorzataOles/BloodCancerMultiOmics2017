@@ -1,0 +1,67 @@
+Package: BloodCancerMultiOmics2017
+Type: Package
+Title: Primary Blood Cancer Encyclopedia (PACE)
+Version: 0.99.1
+Author: Malgorzata Oles, Sascha Dietrich, Junyan Lu, Britta Velten, Andreas Mock, Vladislav Kim, Wolfgang Huber
+Maintainer: Malgorzata Oles <malgorzata.oles@embl.de>
+Description: The package contains data of the Primary Blood Cancer Encyclopedia (PACE) project together with a complete executable transcript of the statistical analysis and reproduces figures presented in the paper "Drug Perturbation Based Stratification of Blood Cancer" by Dietrich S, Oles M, Lu J et al. (in press).
+License: LGPL (>= 3)
+Encoding: UTF-8
+VignetteBuilder: knitr
+Depends: R (>= 3.5.0)
+Imports:
+	beeswarm,
+	Biobase,
+	DESeq2,
+	devtools,
+	dplyr,
+	ggdendro,
+	ggplot2,
+	glmnet,
+	grDevices,
+	grid,
+	gtable,
+	ipflasso,
+	RColorBrewer,
+	reshape2,
+	scales,
+	stats,
+	SummarizedExperiment,
+	survival,
+	tibble
+Suggests:
+	BiocStyle,
+	knitr,
+	rmarkdown,
+	abind,
+	AnnotationDbi,
+	biomaRt,
+	broom,
+	colorspace,
+	cowplot,
+	dendsort,
+	doParallel,
+	foreach,
+	forestplot,
+	genefilter,
+	ggbeeswarm,
+	ggtern,
+	gridExtra,
+	hexbin,
+	IHW,
+	limma,
+	magrittr,
+	Matrix,
+	maxstat,
+	monogeneaGM,
+	nat,
+	org.Hs.eg.db,
+	pheatmap,
+	piano,
+	readxl,
+	Rtsne,
+	tidyr,
+	tidyverse,
+	xtable
+biocViews: ExperimentData, ReproducibleResearch, CancerData, LeukemiaCancerData
+LazyData: true
