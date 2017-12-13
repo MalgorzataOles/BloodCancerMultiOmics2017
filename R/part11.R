@@ -195,7 +195,7 @@ plotPredictions = function(fx, fy, objective, pred, coeffs, lpd, nm, lim,
   gt = gtable_add_cols(gt, gg2$widths[gg2$layout[gia, ]$l])
   gt = gtable_add_grob(gt, gax, 2, 5)
   
-  wdth = convertUnit(gt$widths, "in", val=TRUE)[5]
+  wdth = convertUnit(gt$widths, "in", valueOnly=TRUE)[5]
   # add column on the right of appropriate width
   maxwdth = 2
   gt = gtable_add_cols(gt, unit(maxwdth-wdth, "in"))

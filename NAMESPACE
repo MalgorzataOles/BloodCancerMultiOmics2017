@@ -17,6 +17,7 @@ import("tibble")
 import("scales")  # dscale, hue_pal for pheatmapwh
 import("DESeq2")
 import("SummarizedExperiment")
+importFrom("graphics", "axTicks", "axis", "boxplot", "legend", "par","plot", "strwidth")
 
 ## export
 export("meltWholeDF")
