@@ -47,7 +47,7 @@ makeCorrHeatmap = function(mt, mt2=NA, colsc, concNo="one", ctab=conctab,
   }
   
   # color the drug names on the axis
-  pathColor = BloodCancerMultiOmics2017:::pathColor
+  pathColor = pathColor
   pathColor["Other"] = "black"
   if(concNo=="one") {
     drcol = unname(pathColor[match(dtab[rev(levels(mt$NameX)),"pathway"],

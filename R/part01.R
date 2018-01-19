@@ -28,7 +28,7 @@ plotPathways = function(dat) {
   
   g = ggplot(tmp, aes(x=Pathway, y=No, fill=Group)) +
     geom_bar(width=0.6, stat="identity") +
-    theme_bw() + scale_fill_manual(values=BloodCancerMultiOmics2017:::typeColor, name="Drug type") +
+    theme_bw() + scale_fill_manual(values=typeColor, name="Drug type") +
     scale_y_continuous(breaks=seq(0,20,2), expand = c(0,0),
                        limits = c(0,widthmax)) +
     xlab("") + ylab("Number of drugs") +
@@ -69,14 +69,14 @@ plotPatientStat = function(pats, gap, ptab=patmeta) {
   colnames(plotDF) = c("Diagnosis","NO")
   plotDF$Diagnosis = as.character(plotDF$Diagnosis)
   plotDF$Origin = 
-    names(BloodCancerMultiOmics2017:::diagAmt)[unlist(sapply(plotDF$Diagnosis,
-                                        function(x) grep(x, BloodCancerMultiOmics2017:::diagAmt)))]
+    names(diagAmt)[unlist(sapply(plotDF$Diagnosis,
+                                        function(x) grep(x, diagAmt)))]
   
   # set the order of Diagnosis
   ord = smunlist(
     tapply(1:nrow(plotDF), plotDF$Origin,
            function(idx) plotDF$Diagnosis[idx[order(plotDF[idx,"NO"], 
-           decreasing=TRUE)]])[names(BloodCancerMultiOmics2017:::diagAmt)])
+           decreasing=TRUE)]])[names(diagAmt)])
   plotDF$Diagnosis = factor(plotDF$Diagnosis, levels=ord)
   
   # adjustments for gap
@@ -94,7 +94,7 @@ plotPatientStat = function(pats, gap, ptab=patmeta) {
   g = ggplot() + geom_bar(data=plotDF, aes(x=Diagnosis, y=NO, fill=Origin),
                           stat="identity", colour="black", size=0.1, width=.5) +
     theme_bw() + scale_x_discrete() +
-    scale_fill_manual(values=BloodCancerMultiOmics2017:::colDiagL) +
+    scale_fill_manual(values=colDiagL) +
     scale_y_continuous(breaks=xbreaks, labels=xlabels, expand=c(0,0),
                        limits=xlimits) +
     geom_hline(yintercept=c(gap[1]+5,gap[1]+5.5), linetype="dashed", size=0.3) +
