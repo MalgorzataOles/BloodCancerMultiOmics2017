@@ -4,6 +4,9 @@
 
 plotPathways = function(dat) {
   
+  # quiets concerns of R CMD check "no visible binding for global variable"
+  Pathway=NULL; No=NULL; Group=NULL
+  
   ordM = sort(table(dat$group), decreasing=TRUE)
   ordS = tapply(dat$"target_category", dat$group, function(pth) {
     sort(table(pth), decreasing=TRUE)
@@ -62,7 +65,10 @@ plotPathways = function(dat) {
 ################################################################################
 # Function which plots the patient characteristics as a bar plot
 ################################################################################
-plotPatientStat = function(pats, gap, ptab=patmeta) {
+plotPatientStat = function(pats, gap, ptab=BloodCancerMultiOmics2017::patmeta) {
+
+  # quiets concerns of R CMD check "no visible binding for global variable"
+  Diagnosis=NULL; NO=NULL; Origin=NULL
   
   # create plotting data.frame with Diagnosis, Origin and number of cases 
   plotDF = data.frame(table(ptab[pats,"Diagnosis"]))

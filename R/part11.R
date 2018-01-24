@@ -1,7 +1,8 @@
 # Script contains helper functions for drug response prediction
 
 # label the drugs with proper u
-giveDrugLabel3 = function(drid, dtab=drugs, ctab=conctab) {
+giveDrugLabel3 = function(drid, dtab=BloodCancerMultiOmics2017::drugs,
+                          ctab=BloodCancerMultiOmics2017::conctab) {
   vapply(strsplit(drid, "_"), function(x) {
     k <- paste(x[1:2], collapse="_")
     paste0(dtab[k, "name"], " ",
@@ -12,6 +13,9 @@ giveDrugLabel3 = function(drid, dtab=drugs, ctab=conctab) {
 
 # select features from the lpd object to use as response and predictors in the model
 featureSelectionForLasso = function(objective, predictors, lpd) {
+  
+  # quiets concerns of R CMD check "no visible binding for global variable"
+  dataType=NULL
   
   dimobj = dimnames(objective)
   objectiveName = dimobj[[1]][1]
@@ -44,8 +48,11 @@ featureSelectionForLasso = function(objective, predictors, lpd) {
 
 # plotting the predictions
 plotPredictions = function(fx, fy, objective, pred, coeffs, lpd, nm, lim,
-                           objectiveName) {
+                           objectiveName, colors) {
 
+  # quiets concerns of R CMD check "no visible binding for global variable"
+  X=NULL; Y=NULL; Measure=NULL
+                           
   # PREPARE DATA FOR PLOTTING
   
   stopifnot( identical(dim(pred), c(length(fy), 1L)), identical(rownames(pred),
@@ -88,10 +95,10 @@ plotPredictions = function(fx, fy, objective, pred, coeffs, lpd, nm, lim,
     xlab("") + ylab("Model Coefficients") +
     geom_vline(xintercept=c(0.5), color="black", size=0.6)+
     scale_fill_manual(c("M", "I", "G", "P"),
-                      values=c(M=coldef[["M"]][2],
-                               I=coldef[["I"]],
-                               G=coldef[["G"]],
-                               P=coldef[["P"]]))
+                      values=c(M=colors[["M"]][2],
+                               I=colors[["I"]],
+                               G=colors[["G"]],
+                               P=colors[["P"]]))
   
   
   # heat map
@@ -121,10 +128,10 @@ plotPredictions = function(fx, fy, objective, pred, coeffs, lpd, nm, lim,
   part2 = ggplot(mat2, aes(x=X, y=Y, fill=Measure)) +
     geom_tile() + theme_bw() +
     scale_fill_manual(name="Mutated",
-                      values=c(`2`="gray96", `3`=paste0(coldef["G"], "E5"),
-                               `5`=coldef[["M"]][1], `5.5`=coldef[["M"]][2],
-                               `6`=coldef[["M"]][3], `7`=coldef[["P"]],
-                               `4`=paste0(coldef["I"],"E5")), guide=FALSE) +
+                      values=c(`2`="gray96", `3`=paste0(colors["G"], "E5"),
+                               `5`=colors[["M"]][1], `5.5`=colors[["M"]][2],
+                               `6`=colors[["M"]][3], `7`=colors[["P"]],
+                               `4`=paste0(colors["I"],"E5")), guide=FALSE) +
     scale_y_discrete(expand=c(0,0)) +
     theme(axis.text.y=element_text(hjust=0, size=14),
           axis.text.x=element_blank(),
@@ -209,7 +216,7 @@ plotPredictions = function(fx, fy, objective, pred, coeffs, lpd, nm, lim,
 # determinants of drug response
 doLasso = function(objective, predictors, lpd,suffix="",
                   nm=NA, lim=0.21, ncv=10, nfolds=10, std=FALSE,
-                  adaLasso = TRUE) {
+                  adaLasso = TRUE, colors) {
   
   #construct design and response matrix
   out = featureSelectionForLasso(objective, predictors, lpd)
@@ -284,7 +291,7 @@ doLasso = function(objective, predictors, lpd,suffix="",
   residuals <- pred[,1]-fy
   
   plot = plotPredictions(fx, fy, objective, pred, coeffs, lpd, nm, lim,
-                         objectiveName)
+                         objectiveName, colors)
   
   return(list(residuals=residuals, coeffs=coeffs_all, plot=plot))
 }
@@ -305,9 +312,10 @@ prepareLPD = function(lpd, minNumSamplesPerGroup, withMC=TRUE) {
   
   # PRETREATMENT
   # update the expression set by adding row about pretreatment
-  pretreated <- t(matrix(ifelse(patmeta[colnames(lpd),
-                                        "IC50beforeTreatment"], 0, 1),
-                         dimnames=list(colnames(lpd), "Pretreatment"))) 
+  pretreated <- t(matrix(ifelse(
+    BloodCancerMultiOmics2017::patmeta[colnames(lpd),
+    "IC50beforeTreatment"], 0, 1),
+    dimnames=list(colnames(lpd), "Pretreatment"))) 
   fdata_pretreat <- data.frame(name=NA, type="pretreat", id=NA, subtype=NA,
                                row.names="Pretreatment")
   lpd <- ExpressionSet(assayData=rbind(exprs(lpd), pretreated),
@@ -361,14 +369,18 @@ prepareLPD = function(lpd, minNumSamplesPerGroup, withMC=TRUE) {
 
 # wrapper functions to do Lasso model fitting, plotting and prediction
 makePredictions = function(drs, frq, lpd, predictorList, lim, std=FALSE,
-                           adaLasso = TRUE) {
+                           adaLasso = TRUE, colors) {
+                           
   res = lapply(names(drs), function(typ) {
     setNames(lapply(drs[[typ]], function(dr) {
-      if(typ=="1:5") nm <- paste0(drugs[dr, "name"],
-                                  " (average of all concentrations)")
-        else if(typ=="4:5") nm <- paste0(drugs[dr, "name"], " (average of ",
-                                         paste(conctab[dr,4:5]*1000,
-                                               collapse = " and "), " nM)")
+      if(typ=="1:5")
+        nm <- paste0(BloodCancerMultiOmics2017::drugs[dr, "name"],
+                     " (average of all concentrations)")
+        else if(typ=="4:5")
+          nm <- paste0(BloodCancerMultiOmics2017::drugs[dr, "name"],
+                       " (average of ", paste(
+                       BloodCancerMultiOmics2017::conctab[dr,4:5]*1000,
+                         collapse = " and "), " nM)")
       # G & I & M & P
       doLasso(exprs(lpd)[grepl(dr, rownames(lpd)) &
                            fData(lpd)$subtype==typ,, drop=FALSE], 
@@ -377,7 +389,7 @@ makePredictions = function(drs, frq, lpd, predictorList, lim, std=FALSE,
                                 predictorsP)), 
               lpd=lpd,
               suffix=paste0("_","th0", "_c",gsub(":","-",typ)),
-              nm=nm, lim=lim)
+              nm=nm, lim=lim, colors=colors)
     }), nm=drs[[typ]])
   })
   return(res)
@@ -385,7 +397,10 @@ makePredictions = function(drs, frq, lpd, predictorList, lim, std=FALSE,
 
 
 # Function to plot the legends
-makeLegends = function(legendFor, colors=coldef) {
+makeLegends = function(legendFor, colors) {
+  
+  # quiets concerns of R CMD check "no visible binding for global variable"
+  x=NULL; y=NULL
   
   # select the colors needed
   colors = colors[names(colors) %in% legendFor]

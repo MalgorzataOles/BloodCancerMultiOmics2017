@@ -2,7 +2,6 @@
 ### ADDITIONAL FUNCTIONS
 ###########################################################
 
-
 # Wide to long format conversion
 meltWholeDF = function(df) {
   data.frame(X=rep(colnames(df), each=nrow(df)),

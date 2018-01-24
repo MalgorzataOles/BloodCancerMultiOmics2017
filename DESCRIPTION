@@ -23,6 +23,7 @@ Imports:
 	grid,
 	gtable,
 	ipflasso,
+	methods,
 	RColorBrewer,
 	reshape2,
 	scales,

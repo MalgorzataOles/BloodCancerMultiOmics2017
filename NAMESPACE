@@ -18,6 +18,7 @@ import("scales")  # dscale, hue_pal for pheatmapwh
 import("DESeq2")
 import("SummarizedExperiment")
 importFrom("graphics", "axTicks", "axis", "boxplot", "legend", "par","plot", "strwidth")
+importFrom("methods", "new")
 
 ## export
 export("meltWholeDF")

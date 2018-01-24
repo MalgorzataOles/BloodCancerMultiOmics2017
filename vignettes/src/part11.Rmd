@@ -406,7 +406,8 @@ drs = list("1:5"=c("D_006", "D_010", "D_159"),
 predvar = unlist(BloodCancerMultiOmics2017:::makePredictions(drs=drs,
                                  lpd=lpdCLL,
                                  predictorList=predictorList,
-                                 lim=0.15, std=FALSE, adaLasso=TRUE),
+                                 lim=0.15, std=FALSE, adaLasso=TRUE,
+                                 colors=coldef),
                  recursive=FALSE)
 ```
 
@@ -459,7 +460,8 @@ grid.draw(details("D_166","plot"))
 
 Plot the legends.
 ```{r}
-legends = BloodCancerMultiOmics2017:::makeLegends(legendFor=c("G","I","M", "P"))
+legends = BloodCancerMultiOmics2017:::makeLegends(legendFor=c("G","I","M", "P"),
+                                                  coldef)
 ```
 
 ```{r legend, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=legends[["width"]], fig.height=legends[["height"]]}
@@ -473,7 +475,8 @@ drs_rot = list("4:5"=c("D_067"))
 predvar_rot = unlist(BloodCancerMultiOmics2017:::makePredictions(drs=drs_rot,
                                  lpd=lpdCLL,
                                  predictorList=predictorList,
-                                 lim=0.23, std=FALSE, adaLasso=TRUE),
+                                 lim=0.23, std=FALSE, adaLasso=TRUE,
+                                 colors=coldef),
                  recursive=FALSE)
 ```
 
@@ -493,7 +496,8 @@ drs = list("1:5"=alldrs, "4:5"=alldrs)
 predvar2 = BloodCancerMultiOmics2017:::makePredictions(drs=drs,
                                         lpd=lpdCLL,
                                         predictorList=predictorList,
-                                        lim=0.23)
+                                        lim=0.23,
+                                        colors=coldef)
 ```
 
 ### Effect of pre-treatment

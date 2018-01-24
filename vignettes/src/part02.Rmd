@@ -114,16 +114,6 @@ giveViabMatrix = function(diag, screen, chnnl) {
 }
 ```
 
-Function which reorders the clustered matrix based on computed singular value decomposition.
-```{r}
-callback = function(hc, mat){
-   sv = svd(t(mat))$v[,1]
-   dend = reorder(as.dendrogram(hc), wts = sv)
-   rv <- as.hclust(dend)
-   rv
-}
-```
-
 Color scales for the heat maps.
 ```{r}
 palette.cor1 = c(rev(brewer.pal(9, "Blues"))[1:8],

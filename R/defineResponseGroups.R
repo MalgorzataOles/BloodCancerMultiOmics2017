@@ -1,5 +1,9 @@
 defineResponseGroups = function(lpd) {
   
+  # quiets concerns of R CMD check "no visible binding for global variable"
+  x=NULL; ibrutinib=NULL; everolimus=NULL;
+  selumetinib=NULL
+  
   z_factor <- qnorm(0.05, lower.tail = FALSE)
   
   drugnames <- c( "ibrutinib", "everolimus", "selumetinib")
@@ -33,6 +37,7 @@ defineResponseGroups = function(lpd) {
                                      ifelse(selumetinib < thresh, "MEK",
                                      "none")))
   )
+
   
   return(data.frame(df[,c("ibrutinib","everolimus","selumetinib","group")],
                     row.names=df$PatientID))

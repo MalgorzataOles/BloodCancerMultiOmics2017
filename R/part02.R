@@ -7,8 +7,23 @@
 #   diagnosis
 ################################################################################
 
-makeCorrHeatmap = function(mt, mt2=NA, colsc, concNo="one", ctab=conctab,
-                           dtab=drugs) {
+makeCorrHeatmap = function(mt, mt2=NA, colsc, concNo="one",
+                           ctab=BloodCancerMultiOmics2017::conctab,
+                           dtab=BloodCancerMultiOmics2017::drugs) {
+  
+  # quiets concerns of R CMD check "no visible binding for global variable"
+  NameX=NULL; NameY=NULL; Measure=NULL; x=NULL; y=NULL; xend=NULL;
+  yend=NULL
+  
+  # Function which reorders the clustered matrix based on
+  # computed singular value decomposition.
+  callback = function(hc, mat){
+    sv = svd(t(mat))$v[,1]
+    dend = reorder(as.dendrogram(hc), wts = sv)
+    rv <- as.hclust(dend)
+    rv
+  }
+  
   
   # cluster the drugs
   mt = mt[apply(mt, 1, sd)!=0, ]

@@ -10,6 +10,11 @@
 ggvolc2 = function(df, title, Ycut, color=NA, xlab, maxX, maxY, expY, hghBox,
                    axisMarkY, breaksX, arrowLength, Xhang, minConc, fixedHght) {
 
+  # quiets concerns of R CMD check "no visible binding for global variable"
+  X=NULL; Y=NULL; labX=NULL; labY=NULL; Label=NULL;
+  hjust=NULL; x=NULL; y=NULL; xend=NULL; yend=NULL;
+  Color=NULL; .x=NULL; Fill=NULL                 
+                   
   # color palette
   pal = setNames(rev(c(brewer.pal(11, "RdYlBu")[1:5], "#000000",
                        brewer.pal(11, "RdBu")[7:11])), nm=1:11)
@@ -148,7 +153,7 @@ ggvolc2 = function(df, title, Ycut, color=NA, xlab, maxX, maxY, expY, hghBox,
 
 run.ggvolcGr2 = function(results, effects, screen, mts, fdr, maxX, maxY,
                          expY, hghBox, axisMarkY, breaksX, arrowLength,
-                         Xhang, minConc, dtab=drugs, fixedHght=NA) {
+                         Xhang, minConc, dtab=BloodCancerMultiOmics2017::drugs, fixedHght=NA) {
 
   # select appropriate data to plot
   results = results[[screen]]
@@ -207,7 +212,10 @@ run.ggvolcGr2 = function(results, effects, screen, mts, fdr, maxX, maxY,
 # HEAT MAP
 ################################################################################
 
-ggheat = function(results, effects, dtab=drugs, ctab=conctab) {
+ggheat = function(results, effects, dtab=BloodCancerMultiOmics2017::drugs, ctab=BloodCancerMultiOmics2017::conctab) {
+
+  # quiets concerns of R CMD check "no visible binding for global variable"
+  diag.conc=NULL; Drug2=NULL; Fill=NULL; x=NULL; fill=NULL
 
   # COLORS
   # color palette
@@ -374,15 +382,17 @@ ggheat = function(results, effects, dtab=drugs, ctab=conctab) {
 ################################################################################
 
 
-beeF <- function(drug, mut, cs, diag, y1, y2, custc, lpd=lpdAll,
-                 ctab=conctab, dtab=drugs) {
+beeF <- function(drug, mut, cs, diag, y1, y2, custc,
+                 lpd=BloodCancerMultiOmics2017::lpdAll,
+                 ctab=BloodCancerMultiOmics2017::conctab,
+                 dtab=BloodCancerMultiOmics2017::drugs) {
 
   col1 <- vector(); col2 <- vector()
   dr <- lpd[ , lpd$Diagnosis %in% diag   ]
   p = t.test( exprs(dr)[drug,] ~ exprs(dr)[mut,], var.equal = TRUE)$p.value
 
   #clonsize
-  af <- fData(mutCOM)[colnames(dr), paste0(mut, "cs")]
+  af <- fData(BloodCancerMultiOmics2017::mutCOM)[colnames(dr), paste0(mut, "cs")]
 
   #Create a function to generate a continuous color palette
   rbPal <- colorRampPalette(c('coral1','blue4'))
@@ -424,7 +434,8 @@ beeF <- function(drug, mut, cs, diag, y1, y2, custc, lpd=lpdAll,
 beePretreatment = function(lpd, drug, y1, y2, fac, val, name) {
 
   dr <- lpd[  , exprs(lpd)[fac,] %in% val]
-  pretreat <- patmeta[colnames(dr), "IC50beforeTreatment"]
+  pretreat <- BloodCancerMultiOmics2017::patmeta[colnames(dr),
+    "IC50beforeTreatment"]
   p = t.test( exprs(dr)[drug,] ~ pretreat, var.equal = TRUE)$p.value
 
   beeswarm( exprs(dr)[drug,] ~ pretreat,
