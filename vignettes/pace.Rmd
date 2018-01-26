@@ -1,7 +1,7 @@
 ---
-title: "Primary Blood Cancer Cell Encyclopedia (PACE)"
+title: "BloodCancerMultiOmics2017 - complete analysis"
 vignette: >
-  %\VignetteIndexEntry{Primary Blood Cancer Cell Encyclopedia (PACE)}
+  %\VignetteIndexEntry{BloodCancerMultiOmics2017}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 output:
@@ -11,19 +11,22 @@ output:
 
 # Introduction
 
-PACE is a multi-omic dataset comprising genome, transcriptome, DNA methylome data together with data from the *ex vivo* drug sensitivity screen of the primary blood tumor samples.
+`Biocpkg("BloodCancerMultiOmics2017")` is a multi-omic dataset comprising genome, transcriptome, DNA methylome data together with data from the *ex vivo* drug sensitivity screen of the primary blood tumor samples.
 
 ***
 
-In this vignette we present the analysis of PACE and source code for the paper
+In this vignette we present the analysis of the Primary Blood Cancer Encyclopedia (PACE) project and source code for the paper
 
 <br />
 
-**Drug Perturbation Based Stratification of Blood Cancer**
+**Drug-perturbation-based stratification of blood cancer**
 
 Sascha Dietrich\*, Małgorzata Oleś\*, Junyan Lu\*,
 Leopold Sellner, Simon Anders, Britta Velten, Bian Wu, Jennifer Hüllein, Michelle da Silva Liberio, Tatjana Walther, Lena Wagner, Sophie Rabe, Sonja Ghidelli-Disse, Marcus Bantscheff, Andrzej K. Oleś, Mikołaj Słabicki, Andreas Mock, Christopher C. Oakes, Shihui Wang, Sina Oppermann, Marina Lukas, Vladislav Kim, Martin Sill, Axel Benner, Anna Jauch, Lesley Ann Sutton, Emma Young, Richard Rosenquist, Xiyang Liu, Alexander Jethwa, Kwang Seok Lee, Joe Lewis, Kerstin Putzker, Christoph Lutz, Davide Rossi, Andriy Mokhir, Thomas Oellerich, Katja Zirlik, Marco Herling, Florence Nguyen-Khac, Christoph Plass, Emma Andersson, Satu Mustjoki, Christof von Kalle, Anthony D. Ho, Manfred Hensel, Jan Dürig, Ingo Ringshausen, Marc Zapatka,
 Wolfgang Huber and Thorsten Zenz
+
+*J. Clin. Invest.* (2018); 128(1):427–445. doi:10.1172/JCI93801. 
+
 
 The presented analysis was done by Małgorzata Oleś, Sascha Dietrich, Junyan Lu, Britta Velten, Andreas Mock, Vladislav Kim and Wolfgang Huber.
 
@@ -32,7 +35,7 @@ The presented analysis was done by Małgorzata Oleś, Sascha Dietrich, Junyan Lu
 <br />
 
 
-This vignette is build from the sub-vignettes, which each can be build separatelly. The parts are separated by the horizontal lines. Each part finishes with removal of all the created objects.
+This vignette is build from the sub-vignettes, which each can be build separately. The parts are separated by the horizontal lines. Each part finishes with removal of all the created objects.
 
 
 ```{r echo=FALSE}

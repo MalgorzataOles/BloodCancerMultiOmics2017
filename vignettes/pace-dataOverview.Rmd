@@ -1,11 +1,11 @@
 ---
-title: "Summary of data objects in PACE"
+title: "BloodCancerMultiOmics2017 - data overview"
 author: "Małgorzata Oleś"
 output: 
   BiocStyle::html_document:
     toc_float: true
 vignette: >
-  %\VignetteIndexEntry{Summary of data objects in PACE}
+  %\VignetteIndexEntry{BloodCancerMultiOmics2017 - data overview}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8} 
 ---
@@ -18,7 +18,6 @@ library("BloodCancerMultiOmics2017")
 library("Biobase")
 library("SummarizedExperiment")
 library("DESeq2")
-
 library("reshape2")
 library("ggplot2")
 library("tidyverse")
@@ -30,7 +29,8 @@ library("BiocStyle")
 
 Primary tumor samples from blood cancer patients underwent functional and molecular characterization. `r Biocpkg("BloodCancerMultiOmics2017")` includes the resulting preprocessed data. A quick overview of the available data is provided below. For the details on experimental settings please refer to:
 
-S Dietrich\*, M Oleś\*, J Lu\* et al. *Drug Perturbation Based Stratification of Blood Cancer* (in press)
+S Dietrich\*, M Oleś\*, J Lu\* et al. *Drug-perturbation-based stratification of blood cancer*
+*J. Clin. Invest.* (2018); 128(1):427–445. doi:10.1172/JCI93801. 
 
 \* equal contribution
 
@@ -140,7 +140,7 @@ table(patmeta[patmeta$Diagnosis=="CLL", "IGHV"])
 
 The viability measurements from the high-throughput drug screen are included in the `drpar` object. The metadata about the drugs and drug concentrations used can be found in `drugs` and `conctab` objects, respectively.
 
-The `drpar` object includes multiple channels, each of which consists of viability data for a single drug concentration step. Channels `viaraw.1_5` and `viaraw.4_5` contain the mean viability score between multiple concentration steps as indicated at the end of the channel name.
+The `drpar` object includes multiple channels, each of which consists of cells' viability data for a single drug concentration step. Channels `viaraw.1_5` and `viaraw.4_5` contain the mean viability score between multiple concentration steps as indicated at the end of the channel name.
 
 ```{r}
 channelNames(drpar)
@@ -275,13 +275,13 @@ exprs(lpdAll)[which(
 
 The raw data from the whole exome sequencing, RNA-seq and DNA methylation arrays is stored in the European Genome-Phenome Archive (EGA) under accession number EGAS0000100174.
 
-The proprocesed DNA methylation data, which include complete list of CpG sites (not only the 5000 with the highest variance) can be accessed through Bioconductor ExperimentHub platform.
+The preprocesed DNA methylation data, which include complete list of CpG sites (not only the 5000 with the highest variance) can be accessed through Bioconductor ExperimentHub platform.
 
 ```{r eval=FALSE}
 library("ExperimentHub")
 
 eh = ExperimentHub()
-obj = ExperimentHub::loadResource(eh, "PACEmeth")
+obj = query(eh, c("CLL", "methylation", "2017", "PACE"))
 meth = obj[[1]] # extract the methylation data
 ```
 

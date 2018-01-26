@@ -1,10 +1,10 @@
 Package: BloodCancerMultiOmics2017
 Type: Package
-Title: Primary Blood Cancer Encyclopedia (PACE)
+Title: "Drug-perturbation-based stratification of blood cancer" by Dietrich S, Oles M, Lu J et al. - experimental data and complete analysis
 Version: 0.99.1
 Author: Malgorzata Oles, Sascha Dietrich, Junyan Lu, Britta Velten, Andreas Mock, Vladislav Kim, Wolfgang Huber
 Maintainer: Malgorzata Oles <malgorzata.oles@embl.de>
-Description: The package contains data of the Primary Blood Cancer Encyclopedia (PACE) project together with a complete executable transcript of the statistical analysis and reproduces figures presented in the paper "Drug Perturbation Based Stratification of Blood Cancer" by Dietrich S, Oles M, Lu J et al. .
+Description: The package contains data of the Primary Blood Cancer Encyclopedia (PACE) project together with a complete executable transcript of the statistical analysis and reproduces figures presented in the paper "Drug-perturbation-based stratification of blood cancer" by Dietrich S, Oles M, Lu J et al., J. Clin. Invest. (2018) 128(1):427-445. doi:10.1172/JCI93801.
 License: LGPL (>= 3)
 Encoding: UTF-8
 VignetteBuilder: knitr
