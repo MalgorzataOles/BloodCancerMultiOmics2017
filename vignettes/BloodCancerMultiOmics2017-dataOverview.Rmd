@@ -30,6 +30,7 @@ library("BiocStyle")
 Primary tumor samples from blood cancer patients underwent functional and molecular characterization. `r Biocpkg("BloodCancerMultiOmics2017")` includes the resulting preprocessed data. A quick overview of the available data is provided below. For the details on experimental settings please refer to:
 
 S Dietrich\*, M Oleś\*, J Lu\* et al. *Drug-perturbation-based stratification of blood cancer*
+<br>
 *J. Clin. Invest.* (2018); 128(1):427–445. doi:10.1172/JCI93801. 
 
 \* equal contribution
@@ -281,7 +282,7 @@ The preprocesed DNA methylation data, which include complete list of CpG sites (
 library("ExperimentHub")
 
 eh = ExperimentHub()
-obj = query(eh, c("CLL", "methylation", "2017", "PACE"))
+obj = query(eh, "CLLmethylation2017")
 meth = obj[[1]] # extract the methylation data
 ```
 
