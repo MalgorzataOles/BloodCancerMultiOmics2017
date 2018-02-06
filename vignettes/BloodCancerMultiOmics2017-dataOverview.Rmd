@@ -282,8 +282,8 @@ The preprocesed DNA methylation data, which include complete list of CpG sites (
 library("ExperimentHub")
 
 eh = ExperimentHub()
-obj = query(eh, "CLLmethylation2017")
-meth = obj[[1]] # extract the methylation data
+obj = query(eh, "CLLmethylation")
+meth = obj[["EH1071"]] # extract the methylation data
 ```
 
 
