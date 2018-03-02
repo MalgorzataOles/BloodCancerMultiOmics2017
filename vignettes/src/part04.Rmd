@@ -9,8 +9,6 @@ library("BloodCancerMultiOmics2017")
 library("Biobase")
 library("ggplot2")
 library("grid")
-
-library("monogeneaGM") # colorBar
 ```
 
 ```{r echo=FALSE}
@@ -549,6 +547,26 @@ BloodCancerMultiOmics2017:::beeF(diag="CLL", "D_001_4", "UMODL1", cs=T,  y1=0, y
 ```
 
 ```{r colorbar, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=2, fig.height=4, out.height=200, out.width=100}
+
+# the below function comes from the CRAN package named monogeneaGM
+colorBar <-function(colpalette=NULL, min, max=-min, nticks=11, ticks=seq(min, max, len=nticks), 
+ tit="") {
+    
+	if(is.null(colpalette)) {
+      scale <- (length(colpalette)-1)/(max-min)
+	rwb <- c("#99000D","#FB6A4A","white","#6BAED6","#084594")
+	colpalette<- colorRampPalette(rwb, space="Lab")(101)
+	}
+
+    scale <- (length(colpalette)-1)/(max-min)
+    plot(c(0,10), c(min,max), type="n", bty="n", xaxt="n", xlab="", yaxt="n", ylab="", main=tit)
+    axis(2, ticks, las=1)
+    for (i in 1:(length(colpalette)-1)) {
+    y = (i-1)/scale + min
+    rect(0,y,10,y+1/scale, col=colpalette[i], border=NA)
+    }
+}
+
 colorBar(colorRampPalette(c('coral1','blue4'))(100), min=0, max = 1,
          ticks=c(0,0.5,1))
 ```
