@@ -507,11 +507,14 @@ In order to find out the effect of pre-treatment on the predictions of drug resp
 ```{r}
 givePreatreatSum = function(predNum) {
   
+  idx = sapply(predvar2[[predNum]], function(x) length(x)==1)
+  predvar2[[predNum]] = predvar2[[predNum]][!idx]
   # get model coefficients and reshape
   coeffs <- do.call(cbind,lapply(predvar2[[predNum]], "[[", 'coeffs'))
   coeffs <- coeffs[-1,]
   coeffs <- as.matrix(coeffs)
-  colnames(coeffs) <- unlist(drs["1:5"])
+  # colnames(coeffs) <- unlist(drs["1:5"])
+  colnames(coeffs) = names(predvar2[[predNum]])
   colnames(coeffs) <- drugs[colnames(coeffs),"name"]
   coeffDF <- melt(as.matrix(coeffs))
   colnames(coeffDF) <- c("predictor", "drug", "beta")
@@ -551,7 +554,7 @@ givePreatreatSum = function(predNum) {
   PselDrugs <- as.character(
     filter(coeffDF, predictor=="Pretreatment" & beta!=0)$drug)
   length(PselDrugs)
-  length(drs[[1]])
+  # length(drs[[1]])
 }
 ```
 
