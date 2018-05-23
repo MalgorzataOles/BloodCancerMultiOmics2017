@@ -31,7 +31,7 @@ data(list= c("validateExp","lpdAll"))
 Preparing table for association test and plotting.
 ```{r}
 plotTab <- filter(validateExp, Drug %in% c("Ganetespib", "Onalespib")) %>%
-  mutate(IGHV = exprs(lpdAll)["IGHV Uppsala U/M", patientID]) %>%
+  mutate(IGHV = Biobase::exprs(lpdAll)["IGHV Uppsala U/M", patientID]) %>%
   filter(!is.na(IGHV)) %>%
   mutate(IGHV = as.factor(ifelse(IGHV == 1, "M","U")),
          Concentration = as.factor(Concentration))
@@ -82,7 +82,7 @@ Preparing table for association test and plotting.
 ```{r}
 plotTab <- filter(validateExp, Drug %in%
                     c("Cobimetinib","SCH772984","Trametinib")) %>%
-  mutate(Trisomy12 = exprs(lpdAll)["trisomy12", patientID]) %>%
+  mutate(Trisomy12 = Biobase::exprs(lpdAll)["trisomy12", patientID]) %>%
   filter(!is.na(Trisomy12)) %>%
   mutate(Trisomy12 = as.factor(ifelse(Trisomy12 == 1, "present","absent")),
          Concentration = as.factor(Concentration))

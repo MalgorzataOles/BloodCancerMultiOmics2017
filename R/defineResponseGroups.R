@@ -12,7 +12,7 @@ defineResponseGroups = function(lpd) {
   se  <- "D_012_4:5"
   stopifnot(identical(fData(lpd)[c(ib, ev, se), "name"], drugnames))
   
-  df  <- exprs(lpd)[c(ib, ev, se), lpd$Diagnosis=="CLL"] %>%
+  df  <- Biobase::exprs(lpd)[c(ib, ev, se), lpd$Diagnosis=="CLL"] %>%
     t %>% data.frame %>% `colnames<-`(drugnames)
   df$PatientID=rownames(df)
   mdf <- melt(df)

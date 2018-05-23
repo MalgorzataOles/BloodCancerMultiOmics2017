@@ -325,7 +325,7 @@ To further investiage the association between expression and drug sensitivity gr
 Prepare drug sensitivity vector and gene expression matrix
 ```{r}
 ddsCLL.mTOR <- ddsCLL.norm[,ddsCLL.norm$group %in% "mTOR"]
-viabMTOR <- exprs(lpdCLL["D_063_4:5", ddsCLL.mTOR$PatID])[1,]
+viabMTOR <- Biobase::exprs(lpdCLL["D_063_4:5", ddsCLL.mTOR$PatID])[1,]
 stopifnot(all(ddsCLL.mTOR$PatID == colnames(viabMTOR)))  
 ```
 
@@ -396,7 +396,7 @@ Correlation test was performed to identify genes whose expressions are correlate
 Prepare drug sensitivity vector and gene expression matrix
 ```{r}
 ddsCLL.BTK <- ddsCLL.norm[,ddsCLL.norm$group %in% "BTK"]
-viabBTK <- exprs(lpdCLL["D_002_4:5", ddsCLL.BTK$PatID])[1,]
+viabBTK <- Biobase::exprs(lpdCLL["D_002_4:5", ddsCLL.BTK$PatID])[1,]
 stopifnot(all(ddsCLL.BTK$PatID == colnames(viabBTK)))  
 ```
 
@@ -465,7 +465,7 @@ Correlation test was performed to identify genes whose expressions are correlate
 Prepare drug sensitivity vector and gene expression matrix
 ```{r}
 ddsCLL.MEK <- ddsCLL.norm[,ddsCLL.norm$group %in% "MEK"]
-viabMEK <- exprs(lpdCLL["D_012_4:5", ddsCLL.MEK$PatID])[1,]
+viabMEK <- Biobase::exprs(lpdCLL["D_012_4:5", ddsCLL.MEK$PatID])[1,]
 stopifnot(all(ddsCLL.MEK$PatID == colnames(viabMEK)))  
 ```
 

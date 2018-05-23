@@ -389,7 +389,7 @@ beeF <- function(drug, mut, cs, diag, y1, y2, custc,
 
   col1 <- vector(); col2 <- vector()
   dr <- lpd[ , lpd$Diagnosis %in% diag   ]
-  p = t.test( exprs(dr)[drug,] ~ exprs(dr)[mut,], var.equal = TRUE)$p.value
+  p = t.test( Biobase::exprs(dr)[drug,] ~ Biobase::exprs(dr)[mut,], var.equal = TRUE)$p.value
 
   #clonsize
   af <- fData(BloodCancerMultiOmics2017::mutCOM)[colnames(dr), paste0(mut, "cs")]
@@ -405,12 +405,12 @@ beeF <- function(drug, mut, cs, diag, y1, y2, custc,
   }
 
   if (custc==T) {
-    col1 <- ifelse(exprs(dr)[mut,]==1, col2,"coral1")
+    col1 <- ifelse(Biobase::exprs(dr)[mut,]==1, col2,"coral1")
   } else {
-    col1 <- ifelse(exprs(dr)[mut,]==1, "green","magenta")
+    col1 <- ifelse(Biobase::exprs(dr)[mut,]==1, "green","magenta")
   }
 
-  beeswarm( exprs(dr)[drug,] ~ exprs(dr)[mut,],
+  beeswarm( Biobase::exprs(dr)[drug,] ~ Biobase::exprs(dr)[mut,],
             method = 'swarm',
             pch = 19, pwcol = col1, cex = 1.6,
             xlab = '', ylab = 'Viability', cex.axis=1.6, cex.lab=1.9,
@@ -425,7 +425,7 @@ beeF <- function(drug, mut, cs, diag, y1, y2, custc,
             bty="n"
   )
 
-  boxplot(exprs(dr)[drug,] ~ exprs(dr)[mut,],  add = T, names = c("",""),
+  boxplot(Biobase::exprs(dr)[drug,] ~ Biobase::exprs(dr)[mut,],  add = T, names = c("",""),
           col="#0000ff22", axes = 0, outline=FALSE)
 }
 
@@ -433,12 +433,12 @@ beeF <- function(drug, mut, cs, diag, y1, y2, custc,
 # BEESWARM FOR PRETREATMENT
 beePretreatment = function(lpd, drug, y1, y2, fac, val, name) {
 
-  dr <- lpd[  , exprs(lpd)[fac,] %in% val]
+  dr <- lpd[  , Biobase::exprs(lpd)[fac,] %in% val]
   pretreat <- BloodCancerMultiOmics2017::patmeta[colnames(dr),
     "IC50beforeTreatment"]
-  p = t.test( exprs(dr)[drug,] ~ pretreat, var.equal = TRUE)$p.value
+  p = t.test( Biobase::exprs(dr)[drug,] ~ pretreat, var.equal = TRUE)$p.value
 
-  beeswarm( exprs(dr)[drug,] ~ pretreat,
+  beeswarm( Biobase::exprs(dr)[drug,] ~ pretreat,
             method = 'swarm',
             pch = 19,  cex = 1.2, pwcol=ifelse(pretreat, "blue4", "coral1"),
             xlab = '', ylab = 'Viability', cex.axis=1.6, cex.lab=1.8,
@@ -449,6 +449,6 @@ beePretreatment = function(lpd, drug, y1, y2, fac, val, name) {
             cex.main=2,
             bty="n"
   )
-  boxplot(exprs(dr)[drug,] ~ pretreat,  add = T, names = c("",""),
+  boxplot(Biobase::exprs(dr)[drug,] ~ pretreat,  add = T, names = c("",""),
           col="#0000ff22", axes = 0, outline=FALSE)
 }

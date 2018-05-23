@@ -137,8 +137,8 @@ mean viability effect should not be below `viab`.
 
 ```{r threshs}
 thresh <- list(effectVal = 0.7, effectNum = 4, viab = 0.6, maxval = 1.1)
-overallMean  <- rowMeans(exprs(lpdAll)[candDrugs, ])
-nthStrongest <- apply(exprs(lpdAll)[candDrugs, ], 1,
+overallMean  <- rowMeans(Biobase::exprs(lpdAll)[candDrugs, ])
+nthStrongest <- apply(Biobase::exprs(lpdAll)[candDrugs, ], 1,
                       function(x) sort(x)[thresh$effectNum])
 ```
 ```{r hists, fig.width = 8, fig.height = 2.6}
@@ -160,10 +160,10 @@ seldrugs1 <- candDrugs[ overallMean >= thresh$viab &
             union(targetedDrugs) %>% 
             union(chemoDrugs)
 
-d1 <- exprs(lpdAll[seldrugs1,, drop = FALSE ]) %>%
+d1 <- Biobase::exprs(lpdAll[seldrugs1,, drop = FALSE ]) %>%
   deckel(lower = 0, upper = thresh$maxval)
 
-d2 <- exprs(lpdAll[tzselDrugs,, drop = FALSE ]) %>%
+d2 <- Biobase::exprs(lpdAll[tzselDrugs,, drop = FALSE ]) %>%
   deckel(lower = 0, upper = thresh$maxval)
 ```
 
@@ -303,23 +303,23 @@ make_pd <- function(cn, ...) {
   
   x <- lpdAll[, cn]
   pd <- df(
-    t(exprs(x)[    c("del17p13", "TP53", "trisomy12"), , drop = FALSE]) %>% 
+    t(Biobase::exprs(x)[    c("del17p13", "TP53", "trisomy12"), , drop = FALSE]) %>% 
       `colnames<-`(c("del 17p13", "TP53", "trisomy 12")))
   
   # pd <- df(pd,
-  #    t(exprs(x)[  c("SF3B1", "del11q22.3", "del13q14_any"),, drop = FALSE]) %>% 
+  #    t(Biobase::exprs(x)[  c("SF3B1", "del11q22.3", "del13q14_any"),, drop = FALSE]) %>% 
   #    `colnames<-`(c("SF3B1", "del11q22.3", "del13q14"))) 
   
   pd <- df(pd,
-      cbind(as.integer(exprs(x)["KRAS",] | exprs(x)["NRAS",])) %>% 
+      cbind(as.integer(Biobase::exprs(x)["KRAS",] | Biobase::exprs(x)["NRAS",])) %>% 
       `colnames<-`("KRAS | NRAS")) 
   
   pd <- df(pd,
-    # IGHV = exprs(x)["IGHV Uppsala U/M", ],
+    # IGHV = Biobase::exprs(x)["IGHV Uppsala U/M", ],
     `IGHV (%)` = cut(x[["IGHV Uppsala % SHM"]],
                      breaks = c(0, seq(92, 100, by = 2), Inf), right = FALSE),
     `Meth. Cluster` = names(translation$Methylation_Cluster)[
-          someMatch(paste(exprs(x)["Methylation_Cluster", ]),
+          someMatch(paste(Biobase::exprs(x)["Methylation_Cluster", ]),
                     translation$Methylation_Cluster)],
     `Gene usage` = x$`IGHV gene usage`)
   
@@ -331,7 +331,7 @@ make_pd <- function(cn, ...) {
     alive       = ifelse(patmeta[colnames(x),"died"]>0, "no", "yes"),
     sex         = factor(x$Gender))
   
-  rownames(pd) <- colnames(exprs(x))
+  rownames(pd) <- colnames(Biobase::exprs(x))
   
   for (i in setdiff(colnames(pd), "BCR score")) {
     if (!is.factor(pd[[i]]))
