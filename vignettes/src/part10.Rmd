@@ -81,7 +81,7 @@ prepareTernaryData = function(lpd, targets, invDrugs) {
   # calculate values for ternary
   df = sapply(targets, function(tg) {
     dr = paste(invDrugs[tg], c(4,5), sep="_")
-    tmp = 1-exprs(lpd)[dr,]
+    tmp = 1-Biobase::exprs(lpd)[dr,]
     tmp = colMeans(tmp)
     pmax(tmp, 0)
   })
@@ -237,7 +237,7 @@ fData(e) <- fData(e)[ , c( "ProbeID", "Entrez_Gene_ID", "Symbol",
 
 Here is a simple heat map of correlation between arrays.
 ```{r}
-pheatmap( cor(exprs(e)), symm=TRUE, cluster_rows = FALSE, cluster_cols = FALSE, 
+pheatmap( cor(Biobase::exprs(e)), symm=TRUE, cluster_rows = FALSE, cluster_cols = FALSE, 
    color = colorRampPalette(c("gray10","lightpink"))(100) )
 ```
 
@@ -378,7 +378,7 @@ stopifnot(identical(fData(lpdAll)[c(ib, ev, se), "name"], drugnames))
 ```
 
 ```{r}
-df  <- exprs(lpdAll)[c(ib, ev, se), lpdAll$Diagnosis=="CLL"] %>%
+df  <- Biobase::exprs(lpdAll)[c(ib, ev, se), lpdAll$Diagnosis=="CLL"] %>%
   t %>% as_tibble %>% `colnames<-`(drugnames)
 ```
 ```{r}
@@ -499,19 +499,19 @@ sel$grNONE <- ifelse(sel$group=="none", "none", "rest")
 
 for (i in 1: max(which(fData(lpdCLL)$type=="viab"))) {
   
-  fit <- aov(exprs(lpdCLL)[i, rownames(sel)] ~ sel$group)
+  fit <- aov(Biobase::exprs(lpdCLL)[i, rownames(sel)] ~ sel$group)
   p[i] <- summary(fit)[[1]][["Pr(>F)"]][1]
   
   
   calc_p = function(clmn) {
     p.adjust(
-      t.test(exprs(lpdCLL)[i, rownames(sel)] ~ sel[,clmn],
+      t.test(Biobase::exprs(lpdCLL)[i, rownames(sel)] ~ sel[,clmn],
              alternative = c("two.sided") )$p.value, "BH" )
   }
   
   calc_d = function(clmn) {
     diff(
-      t.test(exprs(lpdCLL)[i, rownames(sel)] ~ sel[,clmn])$estimate,
+      t.test(Biobase::exprs(lpdCLL)[i, rownames(sel)] ~ sel[,clmn])$estimate,
       alternative = c("two.sided") )
   }
   
@@ -557,7 +557,7 @@ ps45 <- ps45[selPS, ]
 ds45 <- ds45[selDS, ]
 
 groupMean = function(gr) {
-  rowMeans(exprs(lpdCLL)[rownames(ps45), rownames(sel)[sel$group==gr]])
+  rowMeans(Biobase::exprs(lpdCLL)[rownames(ps45), rownames(sel)[sel$group==gr]])
 }
 
 MBTK <- groupMean("BTK")
@@ -609,12 +609,12 @@ beeDrug <- function(xDrug) {
  
    par(bty="l", cex.axis=1.5)
    beeswarm(
-     exprs(lpdCLL)[xDrug, rownames(sel)] ~ groups$group,
+     Biobase::exprs(lpdCLL)[xDrug, rownames(sel)] ~ groups$group,
      axes=FALSE, cex.lab=1.5, ylab="Viability", xlab="", pch = 16,
      pwcol=sel$col, cex=1,
-     ylim=c(min( exprs(lpdCLL)[xDrug, rownames(sel)] ) - 0.05, 1.2) )
+     ylim=c(min( Biobase::exprs(lpdCLL)[xDrug, rownames(sel)] ) - 0.05, 1.2) )
  
-   boxplot(exprs(lpdCLL)[xDrug, rownames(sel)] ~ groups$group,  add = T,
+   boxplot(Biobase::exprs(lpdCLL)[xDrug, rownames(sel)] ~ groups$group,  add = T,
            col="#0000ff22", cex.lab=2, outline = FALSE) 
    
    mtext(side=3, outer=F, line=0, 
@@ -671,7 +671,7 @@ sel = defineResponseGroups(lpd=lpdAll)
 Calculate total number of mutations per patient.
 ```{r}
 genes <- data.frame(
-  t(exprs(lpdCLL)[fData(lpdCLL)$type %in% c("gen", "IGHV"), rownames(sel)]),
+  t(Biobase::exprs(lpdCLL)[fData(lpdCLL)$type %in% c("gen", "IGHV"), rownames(sel)]),
   group = factor(sel$group)
 )
 
@@ -898,7 +898,7 @@ drug   <- "D_063_4:5"
 
 patsel <- intersect( rownames(sel)[sel$group %in% c("mTOR")], colnames(vsd) )
 
-c <- cor.test( exprs(lpdCLL)[drug, patsel], vsd[gen, patsel] )
+c <- cor.test( Biobase::exprs(lpdCLL)[drug, patsel], vsd[gen, patsel] )
 
 # get hgnc_symbol for gen
 # mart = useDataset("hsapiens_gene_ensembl", useMart("ensembl"))
@@ -906,13 +906,13 @@ c <- cor.test( exprs(lpdCLL)[drug, patsel], vsd[gen, patsel] )
 # values=gen, mart=mart)
 genSym = genSymbols[gen, "hgnc_symbol"]
 
-plot(vsd[gen, patsel], exprs(lpdCLL)[drug, patsel],
+plot(vsd[gen, patsel], Biobase::exprs(lpdCLL)[drug, patsel],
      xlab=paste0(genSym, " expression"),
      ylab="Viability (everolimus)", pch=19, ylim=c(0.70, 0.92), col="purple",
      main = paste0("mTOR-group", "\n cor = ", round(c$estimate, 3),
                    ", p = ", signif(c$p.value,2 )),
      cex=1.2)
-abline(lm(exprs(lpdCLL)[drug, patsel] ~ vsd[gen, patsel]))
+abline(lm(Biobase::exprs(lpdCLL)[drug, patsel] ~ vsd[gen, patsel]))
 ```
 
 Set colors.

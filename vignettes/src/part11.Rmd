@@ -95,7 +95,7 @@ any(is.na(eData))
 #remove features with less than 5 occurences
 mutCOMbinary<-channel(mutCOM, "binary")
 mutCOMbinary<-mutCOMbinary[featureNames(mutCOMbinary) %in% CLLPatients,]
-genData<-exprs(mutCOMbinary)
+genData<-Biobase::exprs(mutCOMbinary)
 idx <- which(colnames(genData) %in% c("del13q14_bi", "del13q14_mono"))
 genData <- genData[,-idx]
 colnames(genData)[which(colnames(genData)=="del13q14_any")] = "del13q14"

@@ -234,7 +234,7 @@ Additionally, `r length(unique(pData(exprTreat)$PatientID))` patient samples und
 colnames(fData(exprTreat))
 
 # show expression level for the first patient and 3 first probes
-exprs(exprTreat)[1:3, pData(exprTreat)$PatientID==p[1]]
+Biobase::exprs(exprTreat)[1:3, pData(exprTreat)$PatientID==p[1]]
 ```
 
 
@@ -265,7 +265,7 @@ table(fData(lpdAll)$type)
 # show viability data for drug ibrutinib, idelalisib and dasatinib
 # (in the mean of the two lowest concentration steps) and
 # the first 5 patient samples
-exprs(lpdAll)[which(
+Biobase::exprs(lpdAll)[which(
   with(fData(lpdAll),
        name %in% c("ibrutinib", "idelalisib", "dasatinib") &
          subtype=="4:5")), 1:5]

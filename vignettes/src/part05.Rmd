@@ -41,7 +41,7 @@ Accessor functions:
 ```{r}
 # get drug responsee data
 get.drugresp <- function(lpd) {
-  drugresp = t(exprs(lpd[fData(lpd)$type == 'viab'])) %>%
+  drugresp = t(Biobase::exprs(lpd[fData(lpd)$type == 'viab'])) %>%
     dplyr::tbl_df() %>% dplyr::select(-ends_with(":5")) %>%
     dplyr::mutate(ID = colnames(lpd)) %>%
     tidyr::gather(drugconc, viab, -ID) %>%

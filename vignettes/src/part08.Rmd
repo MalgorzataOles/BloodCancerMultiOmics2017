@@ -45,23 +45,23 @@ survT$IGHV = as.numeric(survT$IGHV)
 
 colnames(survT) = gsub("Age4Main", "age", colnames(survT))
 
-survT$ibr45  <- 1-exprs(lpdCLL)[ "D_002_4:5", rownames(survT)  ]  
-survT$ide45  <- 1-exprs(lpdCLL)[ "D_003_4:5", rownames(survT)  ] 
-survT$prt45  <- 1-exprs(lpdCLL)[ "D_166_4:5", rownames(survT)  ] 
-survT$selu45 <- 1-exprs(lpdCLL)[ "D_012_4:5", rownames(survT)  ]
-survT$ever45 <- 1-exprs(lpdCLL)[ "D_063_4:5", rownames(survT)  ]
+survT$ibr45  <- 1-Biobase::exprs(lpdCLL)[ "D_002_4:5", rownames(survT)  ]  
+survT$ide45  <- 1-Biobase::exprs(lpdCLL)[ "D_003_4:5", rownames(survT)  ] 
+survT$prt45  <- 1-Biobase::exprs(lpdCLL)[ "D_166_4:5", rownames(survT)  ] 
+survT$selu45 <- 1-Biobase::exprs(lpdCLL)[ "D_012_4:5", rownames(survT)  ]
+survT$ever45 <- 1-Biobase::exprs(lpdCLL)[ "D_063_4:5", rownames(survT)  ]
 
-survT$nut15 <- 1-exprs(lpdCLL)[ "D_010_1:5", rownames(survT)  ] 
-survT$dox15 <- 1-exprs(lpdCLL)[ "D_159_1:5", rownames(survT)  ] 
-survT$flu15 <- 1-exprs(lpdCLL)[ "D_006_1:5", rownames(survT)  ] 
+survT$nut15 <- 1-Biobase::exprs(lpdCLL)[ "D_010_1:5", rownames(survT)  ] 
+survT$dox15 <- 1-Biobase::exprs(lpdCLL)[ "D_159_1:5", rownames(survT)  ] 
+survT$flu15 <- 1-Biobase::exprs(lpdCLL)[ "D_006_1:5", rownames(survT)  ] 
 
-survT$SF3B1      <- exprs(lpdCLL)[ "SF3B1",      rownames(survT)  ]
-survT$NOTCH1     <- exprs(lpdCLL)[ "NOTCH1",     rownames(survT)  ]
-survT$BRAF       <- exprs(lpdCLL)[ "BRAF",       rownames(survT)  ]
-survT$TP53       <- exprs(lpdCLL)[ "TP53",       rownames(survT)  ]
-survT$del17p13   <- exprs(lpdCLL)[ "del17p13",   rownames(survT)  ]
-survT$del11q22.3 <- exprs(lpdCLL)[ "del11q22.3", rownames(survT)  ]
-survT$trisomy12 <-  exprs(lpdCLL)[ "trisomy12", rownames(survT)  ]
+survT$SF3B1      <- Biobase::exprs(lpdCLL)[ "SF3B1",      rownames(survT)  ]
+survT$NOTCH1     <- Biobase::exprs(lpdCLL)[ "NOTCH1",     rownames(survT)  ]
+survT$BRAF       <- Biobase::exprs(lpdCLL)[ "BRAF",       rownames(survT)  ]
+survT$TP53       <- Biobase::exprs(lpdCLL)[ "TP53",       rownames(survT)  ]
+survT$del17p13   <- Biobase::exprs(lpdCLL)[ "del17p13",   rownames(survT)  ]
+survT$del11q22.3 <- Biobase::exprs(lpdCLL)[ "del11q22.3", rownames(survT)  ]
+survT$trisomy12 <-  Biobase::exprs(lpdCLL)[ "trisomy12", rownames(survT)  ]
 survT$IGHV_cont <- patmeta[ rownames(survT) ,"IGHV Uppsala % SHM"]
 
 
@@ -280,7 +280,7 @@ km <- function(drug, split, title, t, hr, c) {
             length(title)==3)
 
   surv <- survT[!(is.na(survT[,split])), ]
-  k <- exprs(lpdCLL)[ drug, rownames(surv) ]
+  k <- Biobase::exprs(lpdCLL)[ drug, rownames(surv) ]
   
   ms5 <- maxstat.test(Surv(T5, treatedAfter)  ~ k, 
                              data = surv,

@@ -40,7 +40,7 @@ Prepare data.
 ```{r}
 #select drug screening data on patient samples
 lpd <- lpdAll[fData(lpdAll)$type == "viab" & pData(lpdAll)$Diagnosis != "hMNC",]
-viabTab <- exprs(lpd)
+viabTab <- Biobase::exprs(lpd)
 viabTab <- viabTab[,complete.cases(t(viabTab))]
 viabTab <- reshape2::melt(viabTab)
 viabTab$Concentration <- fData(lpd)[viabTab$Var1,"subtype"]
@@ -249,11 +249,11 @@ Preprocessing of drug screen data.
 lpdSub <- lpdAll[fData(lpdAll)$type == "viab",]
 
 #Only use samples with complete values
-lpdSub <- lpdSub[,complete.cases(t(exprs(lpdSub)))]
+lpdSub <- lpdSub[,complete.cases(t(Biobase::exprs(lpdSub)))]
 
 #Transformation of the values
-exprs(lpdSub) <- log(exprs(lpdSub))
-exprs(lpdSub) <- t(scale(t(exprs(lpdSub))))
+Biobase::exprs(lpdSub) <- log(Biobase::exprs(lpdSub))
+Biobase::exprs(lpdSub) <- t(scale(t(Biobase::exprs(lpdSub))))
 
 #annotation for drug ID
 anno <- sprintf("%s(%s)",fData(lpdSub)$name,fData(lpdSub)$subtype)
@@ -318,7 +318,7 @@ annoDiagNew <- function(patList, lpdObj = lpdSub) {
 Calculate t-SNE and prepare data for plotting the result.
 ```{r}
 #prepare distance matrix
-distLpd <- dist(t(exprs(lpdSub)))
+distLpd <- dist(t(Biobase::exprs(lpdSub)))
 
 #run t-SNE
 plotTab <- data.frame(tsneRun(distLpd,perplexity=25, max_iter=5000, seed=338))
@@ -371,7 +371,7 @@ for (drugID in rownames(fData(lpdPlot))) {
 }
 
 fData(lpdPlot)$concValue <- concList
-lpdPlot <- lpdPlot[,complete.cases(t(exprs(lpdPlot)))]
+lpdPlot <- lpdPlot[,complete.cases(t(Biobase::exprs(lpdPlot)))]
 ```
 
 Select drugs and samples.
@@ -388,7 +388,7 @@ lpdCurve <-
   lpdPlot[fData(lpdPlot)$name %in% fData(lpdBee)$name,
           pData(lpdPlot)$Diagnosis %in% patDiag]
 lpdCurve <- lpdCurve[fData(lpdCurve)$subtype %in% seq(1,5),]
-dataCurve <- data.frame(exprs(lpdCurve))
+dataCurve <- data.frame(Biobase::exprs(lpdCurve))
 dataCurve <- cbind(dataCurve,fData(lpdCurve)[,c("name","concValue")])
 tabCurve <- melt(dataCurve,
                  id.vars = c("name","concValue"), variable.name = "patID")
@@ -445,7 +445,7 @@ for (drugName in unique(tabSum$name)) {
 lpdDiag <- lpdAll[,pData(lpdAll)$Diagnosis %in% c("CLL", "MCL", "HCL", "T-PLL")]
 dr <- c("D_012_5", "D_083_5", "D_081_3", "D_040_4", "D_039_3")
 
-m <- data.frame(t(exprs(lpdDiag)[dr, ]), diag=pData(lpdDiag)$Diagnosis)
+m <- data.frame(t(Biobase::exprs(lpdDiag)[dr, ]), diag=pData(lpdDiag)$Diagnosis)
 m <- melt(m)
 m$lable <- 1
 for (i in 1:nrow(m )) {

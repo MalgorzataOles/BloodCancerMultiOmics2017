@@ -21,7 +21,7 @@ featureSelectionForLasso = function(objective, predictors, lpd) {
   objectiveName = dimobj[[1]][1]
   
   #design matix
-  fx = t(exprs(lpd)[predictors, ])
+  fx = t(Biobase::exprs(lpd)[predictors, ])
 
     # check the objective
   stopifnot(identical(rownames(fx), dimobj[[2]]))
@@ -318,13 +318,13 @@ prepareLPD = function(lpd, minNumSamplesPerGroup, withMC=TRUE) {
     dimnames=list(colnames(lpd), "Pretreatment"))) 
   fdata_pretreat <- data.frame(name=NA, type="pretreat", id=NA, subtype=NA,
                                row.names="Pretreatment")
-  lpd <- ExpressionSet(assayData=rbind(exprs(lpd), pretreated),
+  lpd <- ExpressionSet(assayData=rbind(Biobase::exprs(lpd), pretreated),
                           phenoData=new("AnnotatedDataFrame", data=pData(lpd)),
                           featureData=new("AnnotatedDataFrame",
                                           rbind(fData(lpd), fdata_pretreat)))
   # METHYLATION
-  exprs(lpd)[fData(lpd)$type=="Methylation_Cluster",] =
-    exprs(lpd)[fData(lpd)$type=="Methylation_Cluster",]/2
+  Biobase::exprs(lpd)[fData(lpd)$type=="Methylation_Cluster",] =
+    Biobase::exprs(lpd)[fData(lpd)$type=="Methylation_Cluster",]/2
   
   # IGHV: changing name from Uppsala to IGHV
   rownames(lpd)[which(fData(lpd)$type=="IGHV")] = "IGHV"
@@ -340,13 +340,13 @@ prepareLPD = function(lpd, minNumSamplesPerGroup, withMC=TRUE) {
     lpd = lpd[-which(rownames(lpd)=="Chromothripsis"),]
   
   # SELECT GOOD SAMPLES
-  idx = !is.na(exprs(lpd)["IGHV",])
-  if(withMC) idx = idx & !is.na(exprs(lpd)["Methylation_Cluster",])
+  idx = !is.na(Biobase::exprs(lpd)["IGHV",])
+  if(withMC) idx = idx & !is.na(Biobase::exprs(lpd)["Methylation_Cluster",])
   # cut out the data to have information about Methylation_Cluster and IGHV for all samples
   lpd = lpd[, idx]
   # for the genetics - remove the genes which do not have enough samples
   which2remove = names(
-    which(!apply(exprs(lpd)[rownames(lpd)[fData(lpd)$type %in%
+    which(!apply(Biobase::exprs(lpd)[rownames(lpd)[fData(lpd)$type %in%
                                             c("gen")],], 1, function(cl) {
     if(all(is.na(cl))) return(FALSE)
     if(sum(is.na(cl)) >= 0.1*length(cl)) return(FALSE)
@@ -359,9 +359,9 @@ prepareLPD = function(lpd, minNumSamplesPerGroup, withMC=TRUE) {
   featOther = rownames(lpd)[fData(lpd)$type %in%
                               c("IGHV", "Methylation_Cluster", "gen", "viab",
                                 "pretreat")]
-  tmp = exprs(lpd)[featOther,]
+  tmp = Biobase::exprs(lpd)[featOther,]
   tmp[is.na(tmp)] = 0
-  exprs(lpd)[featOther,] = tmp
+  Biobase::exprs(lpd)[featOther,] = tmp
   
   return(lpd)
 }
@@ -382,7 +382,7 @@ makePredictions = function(drs, frq, lpd, predictorList, lim, std=FALSE,
                        BloodCancerMultiOmics2017::conctab[dr,4:5]*1000,
                          collapse = " and "), " nM)")
       # G & I & M & P
-      doLasso(exprs(lpd)[grepl(dr, rownames(lpd)) &
+      doLasso(Biobase::exprs(lpd)[grepl(dr, rownames(lpd)) &
                            fData(lpd)$subtype==typ,, drop=FALSE], 
               predictors=with(predictorList,
                               c(predictorsI, predictorsG, predictorsM,
