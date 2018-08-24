@@ -39,7 +39,7 @@ Here we show a relative cell viability (as compared to negative control) under t
 Prepare data.
 ```{r}
 #select drug screening data on patient samples
-lpd <- lpdAll[fData(lpdAll)$type == "viab" & pData(lpdAll)$Diagnosis != "hMNC",]
+lpd <- lpdAll[fData(lpdAll)$type == "viab", pData(lpdAll)$Diagnosis != "hMNC"]
 viabTab <- Biobase::exprs(lpd)
 viabTab <- viabTab[,complete.cases(t(viabTab))]
 viabTab <- reshape2::melt(viabTab)
@@ -151,27 +151,32 @@ Here we compare the effect of drugs designed to target components of the same si
 
 ```{r}
 # select the data
-mtcll = as.data.frame( t( giveViabMatrix(diag="CLL"  , screen="main", chnnl="viaraw.4_5") ) )
-colnames(mtcll)  <- drugs[colnames(mtcll),"name"]
+mtcll = as.data.frame(t(giveViabMatrix(diag="CLL",
+                                       screen="main",
+                                       chnnl="viaraw.4_5")))
+colnames(mtcll) = drugs[colnames(mtcll),"name"]
 
 # function which plots the scatter plot
-scatdr <-function(drug1, drug2, coldot, mt, min){
+scatdr = function(drug1, drug2, coldot, mtNEW, min){
+  
+  dataNEW = mtNEW[,c(drug1, drug2)]
+  colnames(dataNEW) = c("A", "B")
 
-  p <- ggplot(data=mt,  aes(mt[,drug1],  mt[,drug2] ) )  + labs(x = drug1, y = drug2) +
-        ylim(c(min, 1.35)) +  xlim(c(min, 1.35)) +
-        theme(
-           panel.background = element_blank(),
-           axis.text = element_text(size = 15),
-           axis.title = element_text(size = rel(1.5)),
-           axis.line.x = element_line(colour = "black", size = 0.5),
-           axis.line.y = element_line(colour = "black", size = 0.5),
-           panel.grid.major = element_blank(),
-           panel.grid.minor = element_blank() 
-           ) +
-       geom_point(size=3, col=coldot, alpha=0.8) +
-       geom_text( aes(1, min+0.1, label = paste0("Pearson-R = ", round(cor( mt[,drug1],  mt[,drug2] ), 2) )), size = 5) +
-       geom_smooth(method=lm) 
-
+  p = ggplot(data=dataNEW,  aes(A,  B)) + geom_point(size=3, col=coldot, alpha=0.8) +
+    labs(x = drug1, y = drug2) + ylim(c(min, 1.35)) +  xlim(c(min, 1.35)) +
+    theme(panel.background = element_blank(),
+          axis.text = element_text(size = 15),
+          axis.title = element_text(size = rel(1.5)),
+          axis.line.x = element_line(colour = "black", size = 0.5),
+          axis.line.y = element_line(colour = "black", size = 0.5),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank()) +
+    geom_smooth(method=lm) +
+    geom_text(x=1, y=min+0.1,
+              label=paste0("Pearson-R = ",
+                           round(cor(dataNEW$A, dataNEW$B ), 2)),
+              size = 5)
+  
   return(p)
 }
 ```
@@ -179,11 +184,11 @@ scatdr <-function(drug1, drug2, coldot, mt, min){
 
 ```{r cor_scatter, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), , fig.width=6, fig.height=4, warning=FALSE, out.width=420, out.height=280}
 #FIG# 2A
-scatdr("ibrutinib", "spebrutinib", coldot="deeppink1", mt=mtcll, min=0.4)
-scatdr("ibrutinib", "PRT062607 HCl", coldot="deeppink1", mt=mtcll, min=0.4)
-scatdr("ibrutinib", "idelalisib", coldot="deeppink1", mt=mtcll, min=0.4)
-scatdr("venetoclax", "navitoclax", coldot="goldenrod2", mt=mtcll, min=0.2)
-scatdr("SD51", "MIS-43", coldot="dodgerblue3", mt=mtcll, min=0.2)
+scatdr("ibrutinib", "spebrutinib", coldot="deeppink1", mtNEW=mtcll, min=0.4)
+scatdr("ibrutinib", "PRT062607 HCl", coldot="deeppink1", mtNEW=mtcll, min=0.4)
+scatdr("ibrutinib", "idelalisib", coldot="deeppink1", mtNEW=mtcll, min=0.4)
+scatdr("venetoclax", "navitoclax", coldot="goldenrod2", mtNEW=mtcll, min=0.2)
+scatdr("SD51", "MIS-43", coldot="dodgerblue3", mtNEW=mtcll, min=0.2)
 ```
 
 
