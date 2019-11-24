@@ -7,7 +7,7 @@ output:
 ```{r, message=FALSE, include=!exists(".standalone"), eval=!exists(".standalone")}
 library("BloodCancerMultiOmics2017")
 library("ggplot2")
-library("tidyverse")
+library("dplyr")
 library("gridExtra")
 ```
 

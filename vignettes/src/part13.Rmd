@@ -18,7 +18,9 @@ library("grid")
 library("gridExtra")
 library("RColorBrewer")
 library("cowplot")
-library("tidyverse")
+library("dplyr")
+library("ggplot2")
+library("tibble")
 ```
 
 ```{r echo=FALSE}

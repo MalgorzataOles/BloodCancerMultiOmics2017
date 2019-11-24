@@ -87,7 +87,6 @@ library("SummarizedExperiment")
 library("survival")
 library("tibble")
 library("tidyr")
-library("tidyverse")
 library("xtable")
 ```
 
