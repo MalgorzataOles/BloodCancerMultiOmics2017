@@ -326,9 +326,17 @@ gt = gtable_add_grob(gt, ighvPL$grobs[[whichInGrob(ighvPL, "axis-l")]], 5, 1)
 gt = gtable_add_grob(gt, mutPL$grobs[[whichInGrob(mutPL, "axis-l")]], 9, 1)
 ```
 
+```{r, echo=FALSE}
+knitr::knit_hooks$set(crop=NULL)
+```
+
 ```{r part1, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=sum(wdths), fig.height=sum(hghts)}
 #FIG# 1D
 grid.draw(gt)
+```
+
+```{r, echo=FALSE}
+knitr::knit_hooks$set(crop=knitr:::hook_pdfcrop)
 ```
 
 ```{r charLegend, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.width=10, fig.height=2}
