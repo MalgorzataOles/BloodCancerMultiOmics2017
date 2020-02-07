@@ -95,7 +95,8 @@ Run DESeq2
 design(ddsCLL) <- ~ trisomy12
 ddsCLL <- DESeq(ddsCLL, betaPrior = FALSE)
 DEres <- results(ddsCLL)
-DEres.shr <- lfcShrink(ddsCLL, contrast = c("trisomy12","1","0"), res = DEres)
+DEres.shr <- lfcShrink(ddsCLL, type="normal", contrast = c("trisomy12","1","0"),
+                       res = DEres)
 ```
 
 Plot gene dosage effect.
