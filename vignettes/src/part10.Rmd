@@ -9,7 +9,7 @@ library("BloodCancerMultiOmics2017")
 library("Biobase")
 library("RColorBrewer")
 library("colorspace") # hex2RGB
-library("ggtern") # ggtern
+#library("ggtern") # ggtern
 library("reshape2") # melt
 library("limma")
 library("pheatmap")
@@ -99,7 +99,7 @@ prepareTernaryData = function(lpd, targets, invDrugs) {
 
 ## Plot ternaries
 
-```{r plottingFunction}
+```{r plottingFunction, eval=FALSE}
 makeTernaryPlot = function(td=ternData, targets, invDrugs) {
   
   drn = setNames(drugs[invDrugs[targets],"name"], nm=targets)
@@ -139,7 +139,7 @@ makeTernaryPlot = function(td=ternData, targets, invDrugs) {
 }
 ```
 
-```{r}
+```{r, eval=FALSE}
 # RUN TERNARY
 makeTernary = function(lpd, targets, ighv=NA) {
 
@@ -159,34 +159,34 @@ makeTernary = function(lpd, targets, ighv=NA) {
 
 ### BCR drugs
 
-```{r BCR-tern-CLL, fig.path=plotDir, dev=c('png','pdf'), fig.width = 7, fig.height = 7}
+```{r BCR-tern-CLL, fig.path=plotDir, dev=c('png','pdf'), fig.width = 7, fig.height = 7, eval=FALSE}
 #FIG# 3B
 makeTernary(lpdCLL, c("PI3K", "BTK", "SYK"), ighv=NA)
 ```
 
-```{r BCR-tern-MCLL, fig.path=plotDir, dev=c('png','pdf'), fig.width = 7, fig.height = 7}
+```{r BCR-tern-MCLL, fig.path=plotDir, dev=c('png','pdf'), fig.width = 7, fig.height = 7, eval=FALSE}
 #FIG# 3B
 makeTernary(lpdCLL, c("PI3K", "BTK", "SYK"), ighv="M")
 ```
 
-```{r BCR-tern-UCLL, fig.path=plotDir, dev=c('png','pdf'), fig.width = 7, fig.height = 7}
+```{r BCR-tern-UCLL, fig.path=plotDir, dev=c('png','pdf'), fig.width = 7, fig.height = 7, eval=FALSE}
 #FIG# 3B
 makeTernary(lpdCLL, c("PI3K", "BTK", "SYK"), ighv="U")
 ```
 
 ### BTK & MEK & MTOR
 
-```{r MEK-mTOR-tern, fig.path=plotDir, dev=c('png','pdf'), fig.width = 7, fig.height = 7}
+```{r MEK-mTOR-tern, fig.path=plotDir, dev=c('png','pdf'), fig.width = 7, fig.height = 7, eval=FALSE}
 #FIG# 3BC
 makeTernary(lpdCLL, c("MTOR", "BTK", "MEK"), ighv=NA)
 ```
 
-```{r MEK-mTOR-tern-MCLL, fig.path=plotDir, dev=c('png','pdf'), fig.width = 7, fig.height = 7}
+```{r MEK-mTOR-tern-MCLL, fig.path=plotDir, dev=c('png','pdf'), fig.width = 7, fig.height = 7, eval=FALSE}
 #FIG# 3BC
 makeTernary(lpdCLL, c("MTOR", "BTK", "MEK"), ighv="M")
 ```
 
-```{r MEK-mTOR-tern-UCLL, fig.path=plotDir, dev=c('png','pdf'), fig.width = 7, fig.height = 7}
+```{r MEK-mTOR-tern-UCLL, fig.path=plotDir, dev=c('png','pdf'), fig.width = 7, fig.height = 7, eval=FALSE}
 #FIG# 3BC
 makeTernary(lpdCLL, c("MTOR", "BTK", "MEK"), ighv="U")
 ```
@@ -194,7 +194,7 @@ makeTernary(lpdCLL, c("MTOR", "BTK", "MEK"), ighv="U")
 ### PI3K & MEK & MTOR
 
 All CLL samples included.
-```{r PI3K-MEK-mTOR-tern-CLL, fig.path=plotDir, dev=c('png','pdf'), fig.width = 7, fig.height = 7}
+```{r PI3K-MEK-mTOR-tern-CLL, fig.path=plotDir, dev=c('png','pdf'), fig.width = 7, fig.height = 7, eval=FALSE}
 #FIG# S9 left
 makeTernary(lpdCLL, c("MTOR", "PI3K", "MEK"), ighv=NA)
 ```
@@ -202,7 +202,7 @@ makeTernary(lpdCLL, c("MTOR", "PI3K", "MEK"), ighv=NA)
 ### SYK & MEK & MTOR
 
 All CLL samples included.
-```{r SYK-MEK-mTOR-tern-CLL, fig.path=plotDir, dev=c('png','pdf'), fig.width = 7, fig.height = 7}
+```{r SYK-MEK-mTOR-tern-CLL, fig.path=plotDir, dev=c('png','pdf'), fig.width = 7, fig.height = 7, eval=FALSE}
 #FIG# S9 right
 makeTernary(lpdCLL, c("MTOR", "SYK", "MEK"), ighv=NA)
 ```
