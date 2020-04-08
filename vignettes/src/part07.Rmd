@@ -346,7 +346,9 @@ corResult <- tibble(ID = rownames(ddsCLL.mTOR),
 
 for (i in seq(nrow(corResult))) {
   res <- cor.test(viabMTOR, assay(ddsCLL.mTOR[i,])[1,], method = "pearson")
-  corResult[i,c(3,4)] <- c(res$estimate[[1]], res$p.value)
+  corResult[i, "coef"] = unname(res$estimate)
+  corResult[i, "p"] = res$p.value
+  # corResult[i,c(3,4)] <- c(res$estimate[[1]], res$p.value)
 }
 
 corResult <- arrange(corResult, p) %>% mutate(p.adj = p.adjust(p, method="BH"))
@@ -365,7 +367,8 @@ c6Plot <- plotSetHeatmap(geneTab=statTab[["mTORnone"]],
                 topN=5, gmtFile=gmts[["C6"]],
                 #add asterix in front of the overlapped genes
                 asterixList = corResult.sig, 
-                anno=TRUE, i)
+                anno=TRUE)
+                # anno=TRUE, i)
 ```
 
 ```{r fig_mTOR_C6_asterix, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.height=c6Plot[[1]][["height"]], fig.width=c6Plot[[1]][["width"]]}
@@ -379,7 +382,8 @@ hallmarkPlot <- plotSetHeatmap(geneTab=statTab[["mTORnone"]],
                 enrichTab=hallmarkRes[["mTORnone"]],
                 topN=5, gmtFile=gmts[["H"]],
                 asterixList = corResult.sig,
-                anno=TRUE, i)
+                anno=TRUE)
+                # anno=TRUE, i)
 ```
 
 ```{r fig_mTOR_H_asterix, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.height=hallmarkPlot[[1]][["height"]], fig.width=hallmarkPlot[[1]][["width"]]}
@@ -417,7 +421,9 @@ corResult <- tibble(ID = rownames(ddsCLL.BTK),
 
 for (i in seq(nrow(corResult))) {
   res <- cor.test(viabBTK, assay(ddsCLL.BTK[i,])[1,], method = "pearson")
-  corResult[i,c(3,4)] <- c(res$estimate[[1]], res$p.value)
+  corResult[i, "coef"] = unname(res$estimate)
+  corResult[i, "p"] = res$p.value
+  # corResult[i,c(3,4)] <- c(res$estimate[[1]], res$p.value)
 }
 
 corResult <- arrange(corResult, p) %>% mutate(p.adj = p.adjust(p, method="BH"))
@@ -434,7 +440,8 @@ c6Plot <- plotSetHeatmap(geneTab=statTab[["BTKnone"]],
                 topN=5, gmtFile=gmts[["C6"]],
                 #add asterix in front of the overlapped genes
                 asterixList = corResult.sig, 
-                anno=TRUE, i)
+                anno=TRUE)
+                # anno=TRUE, i)
 ```
 
 ```{r fig_BTK_C6_asterix, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.height=c6Plot[[1]][["height"]], fig.width=c6Plot[[1]][["width"]]}
@@ -448,7 +455,8 @@ hallmarkPlot <- plotSetHeatmap(geneTab=statTab[["BTKnone"]],
                 enrichTab=hallmarkRes[["BTKnone"]],
                 topN=5, gmtFile=gmts[["H"]],
                 asterixList = corResult.sig,
-                anno=TRUE, i)
+                anno=TRUE)
+                # anno=TRUE, i)
 ```
 
 ```{r fig_BTK_H_asterix, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.height=hallmarkPlot[[1]][["height"]], fig.width=hallmarkPlot[[1]][["width"]]}
@@ -502,7 +510,8 @@ corResult.sig <- filter(corResult, p <= pCut)
 c6Plot <- plotSetHeatmap(geneTab=statTab[["MEKnone"]],
                 enrichTab=c6Res[["MEKnone"]],
                 topN=5, gmtFile=gmts[["C6"]],
-                anno=TRUE, i)
+                anno=TRUE)
+                # anno=TRUE, i)
 ```
 
 ```{r fig_MEK_C6_asterix, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.height=c6Plot[[1]][["height"]], fig.width=c6Plot[[1]][["width"]]}
@@ -516,7 +525,8 @@ hallmarkPlot <- plotSetHeatmap(geneTab=statTab[["MEKnone"]],
                 enrichTab=hallmarkRes[["MEKnone"]],
                 topN=5, gmtFile=gmts[["H"]],
                 asterixList = corResult.sig,
-                anno=TRUE, i)
+                anno=TRUE)
+                # anno=TRUE, i)
 ```
 
 ```{r fig_MEK_H_asterix, echo=FALSE, fig.path=plotDir, dev=c("png", "pdf"), fig.height=hallmarkPlot[[1]][["height"]], fig.width=hallmarkPlot[[1]][["width"]]}
