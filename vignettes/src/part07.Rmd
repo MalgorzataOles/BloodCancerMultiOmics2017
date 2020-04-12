@@ -339,15 +339,15 @@ dim(ddsCLL.mTOR)
 
 Association test using Pearson correlation
 ```{r}
+tmp = do.call(rbind, lapply(1:nrow(ddsCLL.mTOR), function(i) {
+  res = cor.test(viabMTOR, assay(ddsCLL.mTOR[i,])[1,], method = "pearson")
+  data.frame(coef=unname(res$estimate), p=res$p.value)
+}))
+
 corResult <- tibble(ID = rownames(ddsCLL.mTOR), 
                     symbol = rowData(ddsCLL.mTOR)$symbol,
-                    coef = NA,
-                    p = NA)
-
-for (i in seq(nrow(corResult))) {
-  res <- cor.test(viabMTOR, assay(ddsCLL.mTOR[i,])[1,], method = "pearson")
-  corResult[i,c(3,4)] <- c(res$estimate[[1]], res$p.value)
-}
+                    coef = tmp$coef,
+                    p = tmp$p)
 
 corResult <- arrange(corResult, p) %>% mutate(p.adj = p.adjust(p, method="BH"))
 ```
@@ -410,15 +410,15 @@ dim(ddsCLL.BTK)
 
 Association test using Pearson correlation
 ```{r}
+tmp = do.call(rbind, lapply(1:nrow(ddsCLL.BTK), function(i) {
+  res = cor.test(viabBTK, assay(ddsCLL.BTK[i,])[1,], method = "pearson")
+  data.frame(coef=unname(res$estimate), p=res$p.value)
+}))
+
 corResult <- tibble(ID = rownames(ddsCLL.BTK), 
                     symbol = rowData(ddsCLL.BTK)$symbol,
-                    coef = NA,
-                    p = NA)
-
-for (i in seq(nrow(corResult))) {
-  res <- cor.test(viabBTK, assay(ddsCLL.BTK[i,])[1,], method = "pearson")
-  corResult[i,c(3,4)] <- c(res$estimate[[1]], res$p.value)
-}
+                    coef = tmp$coef,
+                    p = tmp$p)
 
 corResult <- arrange(corResult, p) %>% mutate(p.adj = p.adjust(p, method="BH"))
 ```
@@ -479,15 +479,15 @@ dim(ddsCLL.MEK)
 
 Association test using Pearson correlation
 ```{r}
+tmp = do.call(rbind, lapply(1:nrow(ddsCLL.MEK), function(i) {
+  res = cor.test(viabMEK, assay(ddsCLL.MEK[i,])[1,], method = "pearson")
+  data.frame(coef=unname(res$estimate), p=res$p.value)
+}))
+
 corResult <- tibble(ID = rownames(ddsCLL.MEK), 
                     symbol = rowData(ddsCLL.MEK)$symbol,
-                    coef = NA,
-                    p = NA)
-
-for (i in seq(nrow(corResult))) {
-  res <- cor.test(viabMEK, assay(ddsCLL.MEK[i,])[1,], method = "pearson")
-  corResult[i,c(3,4)] <- c(res$estimate[[1]], res$p.value)
-}
+                    coef = tmp$coef,
+                    p = tmp$p)
 
 corResult <- arrange(corResult, p) %>% mutate(p.adj = p.adjust(p, method="BH"))
 ```
