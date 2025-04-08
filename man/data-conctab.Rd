@@ -11,7 +11,7 @@ concentrations steps c1-c5 (column names). The column 'c1' indicates
 the highest, and 'c5' indicates the lowest drug concentration used
 in the screen.
 }
-\author{Malgorzata Oles}
+\author{Małgorzata Oleś <dr.malgorzata.oles@gmail.com>}
 \usage{
 conctab
 }

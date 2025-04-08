@@ -23,7 +23,7 @@ ggplot2 package.
 data.frame
 }
 \author{
-Małgorzata Oleś <malgorzata.oles@embl.de>
+Małgorzata Oleś <dr.malgorzata.oles@gmail.com>
 }
 \examples{
 df = data.frame(A=1:4, B=4:7, row.names=letters[1:4])

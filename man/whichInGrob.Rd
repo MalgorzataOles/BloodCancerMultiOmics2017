@@ -20,7 +20,7 @@ If the layer doesn't exist the function returns NA.
 numeric vector
 }
 \author{
-Małgorzata Oleś <malgorzata.oles@embl.de>
+Małgorzata Oleś <dr.malgorzata.oles@gmail.com>
 }
 \examples{
 library("ggplot2")

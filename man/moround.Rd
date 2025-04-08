@@ -23,7 +23,7 @@ argument x.
 numeric vector
 }
 \author{
-Małgorzata Oleś <malgorzata.oles@embl.de>
+Małgorzata Oleś <dr.malgorzata.oles@gmail.com>
 }
 \examples{
 moround(x=c(1.23, 5, 5.1, 8), base=5)

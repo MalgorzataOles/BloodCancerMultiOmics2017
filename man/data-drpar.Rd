@@ -16,7 +16,7 @@ concentrations used, respectively. \code{pData} contains two columns: 'PatientID
 and 'ExpDate'. The second one contains the date at which the ATP content of the
 wells after 48 h of incubation was measured.
 }
-\author{Malgorzata Oles}
+\author{Małgorzata Oleś <dr.malgorzata.oles@gmail.com>}
 \usage{
 drpar
 }

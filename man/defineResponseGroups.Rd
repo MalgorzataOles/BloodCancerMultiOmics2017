@@ -33,5 +33,5 @@ Each patient is then assigned to a group as follows. If the response to ibrutini
 data.frame
 }
 \author{
-Wolfgang Huber <wolfgang.huber@embl.de>, Małgorzata Oleś <malgorzata.oles@embl.de>
+Wolfgang Huber <wolfgang.huber@embl.de>, Małgorzata Oleś <dr.malgorzata.oles@gmail.com>
 }

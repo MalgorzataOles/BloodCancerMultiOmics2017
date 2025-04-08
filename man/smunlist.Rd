@@ -23,7 +23,7 @@ leaves of the list, which means that they can be duplicated.
 named character vector
 }
 \author{
-Małgorzata Oleś <malgorzata.oles@embl.de>
+Małgorzata Oleś <dr.malgorzata.oles@gmail.com>
 }
 \examples{
 mylist = list(A=setNames(1:3, nm=letters[1:3]), B=list(D=3:4, setNames("a", nm=2)))

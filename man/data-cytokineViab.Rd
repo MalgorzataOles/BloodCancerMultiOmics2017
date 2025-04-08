@@ -18,7 +18,7 @@ The data set include the response measurements of 18 CLL patient samples exposed
 'Edge' is an information of the position of the well respective to the whole screening plate,
 'Cytokine_Concentration2 is again the concentration of the cytokine but in a different format.
 }
-\author{Sascha Dietrich, Malgorzata Oles}
+\author{Sascha Dietrich, Małgorzata Oleś}
 \usage{
 cytokineViab
 }

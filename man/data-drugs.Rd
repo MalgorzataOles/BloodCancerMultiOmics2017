@@ -13,7 +13,7 @@ name ('name'), main targets ('main_targets'), target category
 and whether the drug was approved ('approved_042016') or was in the development
 stage ('devel_042016').
 }
-\author{Malgorzata Oles}
+\author{Małgorzata Oleś <dr.malgorzata.oles@gmail.com>}
 \usage{
 drugs
 }

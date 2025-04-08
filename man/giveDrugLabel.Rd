@@ -28,7 +28,7 @@ name of the drug is needed.
 character vector
 }
 \author{
-Małgorzata Oleś <malgorzata.oles@embl.de>
+Małgorzata Oleś <dr.malgorzata.oles@gmail.com>
 }
 \examples{
 data("drugs","conctab")

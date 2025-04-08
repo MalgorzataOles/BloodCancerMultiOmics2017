@@ -12,7 +12,7 @@ Patient samples are annotated in columns and compounds are annotated in rows.
 The screen was performed for 67 drugs in 1-2 different drug concentrations
 (16 drugs in 1 and 51 drugs in 2 concentration steps; see \code{fData(day23rep)}).  
 }
-\author{Malgorzata Oles}
+\author{Małgorzata Oleś <dr.malgorzata.oles@gmail.com>}
 \usage{
 day23rep
 }

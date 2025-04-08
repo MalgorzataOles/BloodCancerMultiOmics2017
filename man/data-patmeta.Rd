@@ -17,7 +17,7 @@ taken. Column 'T5' includes time (in years) which passed from taking the sample
 to the next treatment. Column 'T6' includes time (in years) which passed from
 taking the sample to patients' death. 
 }
-\author{Malgorzata Oles}
+\author{Małgorzata Oleś <dr.malgorzata.oles@gmail.com>}
 \usage{
 patmeta
 }

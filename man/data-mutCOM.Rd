@@ -18,7 +18,7 @@ an additional column 'cs' summarizes the clone size of
 the mutated population. This value is a fraction at which the most abundant
 variant is present in a sample.
 }
-\author{Malgorzata Oles}
+\author{Małgorzata Oleś <dr.malgorzata.oles@gmail.com>}
 \usage{
 mutCOM
 }

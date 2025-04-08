@@ -17,7 +17,7 @@ toCaps(word)
 character vector
 }
 \author{
-Małgorzata Oleś <malgorzata.oles@embl.de>
+Małgorzata Oleś <dr.malgorzata.oles@gmail.com>
 }
 \examples{
 toCaps("abc")

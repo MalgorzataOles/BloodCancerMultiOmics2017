@@ -22,7 +22,7 @@ possible effect directions (sensitivity and resistance in our case).
 numeric vector
 }
 \author{
-Małgorzata Oleś <malgorzata.oles@embl.de>
+Małgorzata Oleś <dr.malgorzata.oles@gmail.com>
 }
 \examples{
 log10div(x=c(-10,10))

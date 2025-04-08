@@ -20,7 +20,7 @@ col2hex(cols, alpha=1, names=NA)
 numeric vector
 }
 \author{
-Małgorzata Oleś <malgorzata.oles@embl.de>
+Małgorzata Oleś <dr.malgorzata.oles@gmail.com>
 }
 \examples{
 col2hex(cols=c("hotpink","skyblue"), alpha=0.5)

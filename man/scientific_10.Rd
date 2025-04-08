@@ -13,7 +13,7 @@ scientific_10
 numeric vector
 }
 \author{
-Małgorzata Oleś <malgorzata.oles@embl.de>
+Małgorzata Oleś <dr.malgorzata.oles@gmail.com>
 }
 \examples{
 ## scale_x_log10(labels=scientific_10)

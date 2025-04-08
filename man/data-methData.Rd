@@ -13,7 +13,7 @@ Preprocessing of raw IDAT files was made using minfi R/Bioconductor package
 normalization algorithm. CpG sites containing SNPs inside the probe body 
 were removed.
 }
-\author{Andreas Mock, Malgorzata Oles}
+\author{Andreas Mock, Małgorzata Oleś}
 \references{
 Oakes CC, Seifert M, Assenov Y, Gu L, Przekopowitz M, Ruppert AS, Wang Q,
 Imbusch CD, Serva A, Koser SD, et al. DNA methylation dynamics during

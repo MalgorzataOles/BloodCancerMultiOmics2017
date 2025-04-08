@@ -16,7 +16,7 @@ percentAxisScale(x)
 numeric vector
 }
 \author{
-Małgorzata Oleś <malgorzata.oles@embl.de>
+Małgorzata Oleś <dr.malgorzata.oles@gmail.com>
 }
 \examples{
 percentAxisScale(x=c(0, 0.1, 1))

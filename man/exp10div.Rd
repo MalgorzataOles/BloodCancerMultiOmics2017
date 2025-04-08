@@ -16,7 +16,7 @@ exp10div(x)
 Object of class expression
 }
 \author{
-Małgorzata Oleś <malgorzata.oles@embl.de>
+Małgorzata Oleś <dr.malgorzata.oles@gmail.com>
 }
 \examples{
 exp10div(-10)

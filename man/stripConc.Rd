@@ -19,7 +19,7 @@ x has to be present in row names of drugs object.
 character vector
 }
 \author{
-Małgorzata Oleś <malgorzata.oles@embl.de>
+Małgorzata Oleś <dr.malgorzata.oles@gmail.com>
 }
 \examples{
 data("drugs")
