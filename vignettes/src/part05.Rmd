@@ -42,7 +42,8 @@ Accessor functions:
 # get drug responsee data
 get.drugresp <- function(lpd) {
   drugresp = t(Biobase::exprs(lpd[fData(lpd)$type == 'viab'])) %>%
-    dplyr::tbl_df() %>% dplyr::select(-ends_with(":5")) %>%
+    tibble::as_tibble() %>%
+    dplyr::select(-ends_with(":5")) %>%
     dplyr::mutate(ID = colnames(lpd)) %>%
     tidyr::gather(drugconc, viab, -ID) %>%
     dplyr::mutate(drug = drugs[substring(drugconc, 1, 5), "name"],
@@ -61,7 +62,8 @@ get.somatic <- function(lpd) {
   
   ## at least 3 patients should have this mutation
   min.samples = which(Matrix::colSums(somatic, na.rm = T) > 2)
-  somatic = dplyr::tbl_df(somatic[, min.samples]) %>%
+  somatic = somatic[, min.samples] %>%
+    tibble::as_tibble() %>%
     dplyr::select(-one_of("del13q14_bi", "del13q14_mono", 
                           "Chromothripsis", "RP11-766F14.2")) %>%
     dplyr::rename(del13q14 = del13q14_any) %>% 
@@ -143,7 +145,8 @@ get.medp <- function(drugresp) {
     df
   }
   
-  medp.viab = dplyr::tbl_df(med.p) %>% dplyr::mutate(ID = rownames(med.p)) %>%
+  medp.viab = med.p %>%
+    tibble::as_tibble(rownames = "ID") %>%
     tidyr::gather(drug, viab, -ID) 
   medp.viab
 }
